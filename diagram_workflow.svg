@@ -1,0 +1,144 @@
+<svg viewBox="0 0 960 1420" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="sipka" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M1,1 L8,4.5 L1,8" fill="none" stroke="#5F5E5A" stroke-width="1.6"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="1420" fill="#FFFFFF"/>
+  <text x="480" y="42" text-anchor="middle" font-size="24" font-weight="600" fill="#2C2C2A">Automatizovaná správa faktúr – TDS s.r.o.</text>
+  <text x="480" y="66" text-anchor="middle" font-size="14" fill="#5F5E5A">Celý proces od nahratia PDF faktúry po pripomienky v Google Kalendári</text>
+
+  <g>
+    <rect x="330" y="92" width="300" height="64" rx="8" fill="#F1EFE8" stroke="#B4B2A9"/>
+    <text x="480" y="118" text-anchor="middle" font-size="15" font-weight="600" fill="#2C2C2A">1. Nahratie faktúry</text>
+    <text x="480" y="140" text-anchor="middle" font-size="12.5" fill="#5F5E5A">Tlačidlo „Nahrať faktúru (PDF)“ – jeden alebo viac súborov</text>
+  </g>
+  <line x1="480" y1="156" x2="480" y2="186" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+
+  <g>
+    <rect x="280" y="190" width="400" height="86" rx="8" fill="#EEEDFE" stroke="#AFA9EC"/>
+    <text x="480" y="216" text-anchor="middle" font-size="15" font-weight="600" fill="#3C3489">2. Automatická extrakcia údajov z PDF</text>
+    <text x="480" y="238" text-anchor="middle" font-size="12.5" fill="#534AB7">číslo faktúry · dodávateľ · odberateľ · IČO · dátum vystavenia</text>
+    <text x="480" y="256" text-anchor="middle" font-size="12.5" fill="#534AB7">dátum splatnosti · sumy a DPH · variabilný symbol</text>
+  </g>
+  <line x1="480" y1="276" x2="480" y2="306" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+
+  <g>
+    <polygon points="480,310 660,368 480,426 300,368" fill="#F1EFE8" stroke="#B4B2A9"/>
+    <text x="480" y="360" text-anchor="middle" font-size="14.5" font-weight="600" fill="#2C2C2A">3. Kde je IČO / názov TDS s.r.o.?</text>
+    <text x="480" y="382" text-anchor="middle" font-size="12" fill="#5F5E5A">automatické rozlíšenie typu faktúry</text>
+  </g>
+
+  <line x1="300" y1="368" x2="190" y2="368" stroke="#5F5E5A" stroke-width="1.6"/>
+  <line x1="190" y1="368" x2="190" y2="446" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+  <text x="238" y="360" text-anchor="middle" font-size="12" fill="#0F6E56">TDS = dodávateľ</text>
+  <line x1="660" y1="368" x2="770" y2="368" stroke="#5F5E5A" stroke-width="1.6"/>
+  <line x1="770" y1="368" x2="770" y2="446" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+  <text x="716" y="360" text-anchor="middle" font-size="12" fill="#993C1D">TDS = odberateľ</text>
+  <line x1="480" y1="426" x2="480" y2="446" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+  <text x="480" y="440" text-anchor="middle" font-size="12" fill="#5F5E5A" dx="70">nenašlo sa</text>
+
+  <g>
+    <rect x="80" y="450" width="220" height="60" rx="8" fill="#E1F5EE" stroke="#5DCAA5"/>
+    <text x="190" y="475" text-anchor="middle" font-size="14" font-weight="600" fill="#085041">VYSTAVENÁ faktúra</text>
+    <text x="190" y="495" text-anchor="middle" font-size="12" fill="#0F6E56">iná firma má zaplatiť nám</text>
+  </g>
+  <g>
+    <rect x="370" y="450" width="220" height="60" rx="8" fill="#F1EFE8" stroke="#B4B2A9"/>
+    <text x="480" y="475" text-anchor="middle" font-size="14" font-weight="600" fill="#2C2C2A">NEURČENÉ</text>
+    <text x="480" y="495" text-anchor="middle" font-size="12" fill="#5F5E5A">typ vyberiete ručne pri úprave</text>
+  </g>
+  <g>
+    <rect x="660" y="450" width="220" height="60" rx="8" fill="#FAECE7" stroke="#F0997B"/>
+    <text x="770" y="475" text-anchor="middle" font-size="14" font-weight="600" fill="#712B13">PRIJATÁ faktúra</text>
+    <text x="770" y="495" text-anchor="middle" font-size="12" fill="#993C1D">platíme my</text>
+  </g>
+
+  <line x1="190" y1="510" x2="190" y2="540" stroke="#5F5E5A" stroke-width="1.6"/>
+  <line x1="190" y1="540" x2="465" y2="562" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+  <line x1="480" y1="510" x2="480" y2="556" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+  <line x1="770" y1="510" x2="770" y2="540" stroke="#5F5E5A" stroke-width="1.6"/>
+  <line x1="770" y1="540" x2="495" y2="562" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+
+  <g>
+    <rect x="240" y="560" width="480" height="96" rx="8" fill="#FAEEDA" stroke="#FAC775"/>
+    <text x="480" y="588" text-anchor="middle" font-size="15" font-weight="600" fill="#633806">4. Záložná tabuľka – zaloha.xlsx</text>
+    <text x="480" y="610" text-anchor="middle" font-size="12.5" fill="#854F0B">Zápis so stavom „Čaká na schválenie“ – nič nejde do hlavnej</text>
+    <text x="480" y="628" text-anchor="middle" font-size="12.5" fill="#854F0B">tabuľky bez kontroly. PDF sa uloží do archívu (data/archiv_pdf).</text>
+    <text x="480" y="646" text-anchor="middle" font-size="12" fill="#854F0B">Riadky tu ostávajú natrvalo = záloha všetkých faktúr.</text>
+  </g>
+  <line x1="480" y1="656" x2="480" y2="686" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+
+  <g>
+    <rect x="240" y="690" width="480" height="110" rx="8" fill="#EEEDFE" stroke="#AFA9EC"/>
+    <text x="480" y="718" text-anchor="middle" font-size="15" font-weight="600" fill="#3C3489">5. Kontrola používateľom v aplikácii</text>
+    <rect x="268" y="736" width="130" height="44" rx="8" fill="#FFFFFF" stroke="#7F77DD"/>
+    <text x="333" y="754" text-anchor="middle" font-size="13" font-weight="600" fill="#3C3489">✏ Upraviť</text>
+    <text x="333" y="771" text-anchor="middle" font-size="11" fill="#534AB7">oprava údajov</text>
+    <rect x="415" y="736" width="130" height="44" rx="8" fill="#FFFFFF" stroke="#1D9E75"/>
+    <text x="480" y="754" text-anchor="middle" font-size="13" font-weight="600" fill="#085041">✔ Schváliť</text>
+    <text x="480" y="771" text-anchor="middle" font-size="11" fill="#0F6E56">zápis do hlavnej</text>
+    <rect x="562" y="736" width="130" height="44" rx="8" fill="#FFFFFF" stroke="#E24B4A"/>
+    <text x="627" y="754" text-anchor="middle" font-size="13" font-weight="600" fill="#791F1F">✖ Zamietnuť</text>
+    <text x="627" y="771" text-anchor="middle" font-size="11" fill="#A32D2D">nezapíše sa</text>
+  </g>
+
+  <path d="M 240 745 L 200 745 L 200 620 L 236 620" fill="none" stroke="#7F77DD" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#sipka)"/>
+  <text x="196" y="688" text-anchor="middle" font-size="11.5" fill="#534AB7" transform="rotate(-90 196 688)">úprava v zálohe</text>
+
+  <path d="M 720 745 L 800 745 L 800 790" fill="none" stroke="#A32D2D" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#sipka)"/>
+  <rect x="712" y="794" width="176" height="46" rx="8" fill="#FCEBEB" stroke="#F09595"/>
+  <text x="800" y="813" text-anchor="middle" font-size="12.5" font-weight="600" fill="#791F1F">Koniec</text>
+  <text x="800" y="830" text-anchor="middle" font-size="11.5" fill="#A32D2D">stav „Zamietnuté“ v zálohe</text>
+
+  <line x1="480" y1="800" x2="480" y2="830" stroke="#5F5E5A" stroke-width="1.6"/>
+  <line x1="480" y1="830" x2="255" y2="856" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+  <line x1="480" y1="830" x2="600" y2="856" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+  <text x="352" y="838" text-anchor="middle" font-size="12" fill="#0F6E56">typ Vystavená</text>
+  <text x="588" y="838" text-anchor="middle" font-size="12" fill="#993C1D">typ Prijatá</text>
+
+  <g>
+    <rect x="100" y="860" width="310" height="78" rx="8" fill="#E1F5EE" stroke="#5DCAA5"/>
+    <text x="255" y="888" text-anchor="middle" font-size="14.5" font-weight="600" fill="#085041">6a. Hlavná tabuľka</text>
+    <text x="255" y="908" text-anchor="middle" font-size="13" fill="#0F6E56">faktury_vystavene.xlsx</text>
+    <text x="255" y="926" text-anchor="middle" font-size="11.5" fill="#0F6E56">+ dátum schválenia, v zálohe stav „Schválené“</text>
+  </g>
+  <g>
+    <rect x="450" y="860" width="310" height="78" rx="8" fill="#FAECE7" stroke="#F0997B"/>
+    <text x="605" y="888" text-anchor="middle" font-size="14.5" font-weight="600" fill="#712B13">6b. Hlavná tabuľka</text>
+    <text x="605" y="908" text-anchor="middle" font-size="13" fill="#993C1D">faktury_prijate.xlsx</text>
+    <text x="605" y="926" text-anchor="middle" font-size="11.5" fill="#993C1D">+ dátum schválenia, v zálohe stav „Schválené“</text>
+  </g>
+
+  <line x1="255" y1="938" x2="255" y2="968" stroke="#5F5E5A" stroke-width="1.6" marker-end="url(#sipka)"/>
+
+  <g>
+    <rect x="100" y="972" width="500" height="150" rx="8" fill="#E6F1FB" stroke="#85B7EB"/>
+    <text x="350" y="1000" text-anchor="middle" font-size="15" font-weight="600" fill="#0C447C">7. Google Kalendár</text>
+    <text x="350" y="1022" text-anchor="middle" font-size="12.5" fill="#185FA5">Udalosť v deň splatnosti faktúry + spoločné pripomienky pred 30.6.</text>
+    <rect x="150" y="1038" width="190" height="40" rx="20" fill="#FFFFFF" stroke="#378ADD"/>
+    <text x="245" y="1063" text-anchor="middle" font-size="13" font-weight="600" fill="#0C447C">20.6. – o 10 dní termín</text>
+    <rect x="360" y="1038" width="190" height="40" rx="20" fill="#FFFFFF" stroke="#378ADD"/>
+    <text x="455" y="1063" text-anchor="middle" font-size="13" font-weight="600" fill="#0C447C">10.6. – o 20 dní termín</text>
+    <text x="350" y="1096" text-anchor="middle" font-size="11.5" fill="#185FA5">Každá pripomienka obsahuje zoznam všetkých faktúr splatných do 30.6.</text>
+    <text x="350" y="1112" text-anchor="middle" font-size="11.5" fill="#185FA5">Zoznam sa dopĺňa automaticky pri každej schválenej faktúre. Termín platí každý rok.</text>
+  </g>
+
+  <text x="680" y="1000" font-size="12" fill="#5F5E5A">Pre prijaté faktúry sa udalosť</text>
+  <text x="680" y="1018" font-size="12" fill="#5F5E5A">nevytvára (dá sa zapnúť</text>
+  <text x="680" y="1036" font-size="12" fill="#5F5E5A">v config.json).</text>
+
+  <rect x="100" y="1160" width="760" height="200 " rx="8" fill="#FAFAF7" stroke="#D3D1C7"/>
+  <text x="130" y="1190" font-size="14" font-weight="600" fill="#2C2C2A">Legenda a poznámky</text>
+  <rect x="130" y="1206" width="18" height="18" rx="4" fill="#E1F5EE" stroke="#5DCAA5"/>
+  <text x="158" y="1220" font-size="12.5" fill="#444441">Vystavená faktúra – TDS s.r.o. je dodávateľ, odberateľ platí nám</text>
+  <rect x="130" y="1232" width="18" height="18" rx="4" fill="#FAECE7" stroke="#F0997B"/>
+  <text x="158" y="1246" font-size="12.5" fill="#444441">Prijatá faktúra – TDS s.r.o. je odberateľ, platíme my</text>
+  <rect x="130" y="1258" width="18" height="18" rx="4" fill="#FAEEDA" stroke="#FAC775"/>
+  <text x="158" y="1272" font-size="12.5" fill="#444441">Záložná tabuľka – kontrola a úprava pred zápisom do hlavnej tabuľky</text>
+  <rect x="130" y="1284" width="18" height="18" rx="4" fill="#E6F1FB" stroke="#85B7EB"/>
+  <text x="158" y="1298" font-size="12.5" fill="#444441">Google Kalendár – udalosť v deň splatnosti + spoločné pripomienky 20 a 10 dní pred 30.6.</text>
+  <text x="130" y="1330" font-size="12" fill="#5F5E5A">Celý systém beží lokálne na počítači. Rozlíšenie typu faktúry je podľa IČO firmy TDS s.r.o. nastaveného v config.json.</text>
+  <text x="130" y="1348" font-size="12" fill="#5F5E5A">Prerušovaná čiara = voliteľná akcia používateľa. Plná čiara = automatický krok.</text>
+</svg>

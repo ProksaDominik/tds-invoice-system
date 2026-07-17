@@ -1,0 +1,18 @@
+# Real business/customer data -- never commit
+data/
+invoices/
+*.pdf
+
+# Google API credentials -- never commit
+credentials.json
+token.json
+
+# OCR language data (large binary files, redistributable separately)
+tessdata/
+
+# Local tooling / caches
+.claude/
+__pycache__/
+*.pyc
+chyba.log
+broad_regression.txt
