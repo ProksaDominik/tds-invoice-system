@@ -1749,14 +1749,24 @@ def _extrahuj_z_textu(text: str, cesta_pdf: str, ico_firmy: str, varianty_nazvu:
         # Bezpečnostná poistka (rovnaká ako vyššie pri regulárnych
         # výrazoch) sa musí uplatniť ZNOVA  AI dopĺňa chýbajúce sumy
         # nezávisle od seba (bez vzájomnej kontroly medzi poľami), takže ak
-        # výsledný súčet nesedí, aspoň jedna z hodnôt je nesprávna a všetky
-        # tri sa radšej vynulujú, než aby sa zobrazilo nesprávne číslo.
+        # výsledný súčet nesedí, aspoň jedna z hodnôt je nesprávna.
+        # DÔLEŽITÉ: vynulujú sa LEN polia, ktoré skutočne doplnila AI (boli
+        # v 'chybajuce')  ak niektorú z troch súm už predtým spoľahlivo
+        # našiel regex, NESMIE sa zahodiť len preto, že AI uhádla nesedivú
+        # (a menej istú) hodnotu pre iné, vtedy chýbajúce pole. Bez tejto
+        # opravy by nesprávny odhad AI pre JEDNU sumu dokázal zničiť aj
+        # správne nájdenú inú sumu ako "kolaterálnu škodu" (pozorované na
+        # faktúre Filteko, kde regex správne našiel základ dane 10 094,25,
+        # ale AI k nemu uhádla nesedivú sumu DPH  vynulovali sa všetky tri
+        # namiesto len tej uhádnutej).
         sbd, dph_v, ssd = (vysledok.get("suma_bez_dph"), vysledok.get("dph"),
                            vysledok.get("suma_s_dph"))
         if sbd and dph_v and ssd:
             try:
                 if abs((float(sbd) + float(dph_v)) - float(ssd)) > 0.02:
-                    vysledok["suma_bez_dph"] = vysledok["dph"] = vysledok["suma_s_dph"] = ""
+                    for pole in ("suma_bez_dph", "dph", "suma_s_dph"):
+                        if pole in chybajuce:
+                            vysledok[pole] = ""
             except ValueError:
                 pass
 
