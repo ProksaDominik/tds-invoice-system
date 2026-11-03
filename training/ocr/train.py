@@ -190,7 +190,10 @@ def test(args) -> None:
     real_test = read_real_lines(Path(args.real), "test") if args.real else []
     if real_test:
         results["real_test"] = evaluate(model, loader(RealOnly(real_test), args.batch, 2, False), device)
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+    # misread examples are real invoice text: kept in the local (gitignored) file, not printed
+    printable = {k: ({m: v for m, v in r.items() if m != "examples"} if isinstance(r, dict) else r)
+                 for k, r in results.items()}
+    print(json.dumps(printable, ensure_ascii=False, indent=2))
     Path(args.test).with_name("test_metrics.json").write_text(
         json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
 
