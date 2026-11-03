@@ -26,26 +26,20 @@ Write-Host ""
 Write-Host "Inštalujem Python knižnice z requirements.txt..."
 python -m pip install -r (Join-Path $projekt "requirements.txt")
 
-# 3. Tesseract OCR (potrebné pre čítanie skenovaných/vytlačených faktúr)
+# 3. PaddlePaddle - výpočtové jadro pre PaddleOCR (čítanie skenovaných faktúr).
+#    S grafickou kartou NVIDIA verzia pre GPU (CUDA 12.9 - podporuje aj nové
+#    karty RTX 50xx), inak verzia pre procesor. Modely OCR (~135 MB) sa
+#    stiahnu automaticky pri prvej naskenovanej faktúre.
 Write-Host ""
-$tesseractExe = @(
-    "C:\Program Files\Tesseract-OCR\tesseract.exe",
-    "C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-if (-not $tesseractExe -and (Get-Command tesseract -ErrorAction SilentlyContinue)) {
-    $tesseractExe = (Get-Command tesseract).Source
-}
-
-if (-not $tesseractExe) {
-    Write-Host "Tesseract OCR nie je nainštalovaný, inštalujem cez winget..."
-    winget install --id UB-Mannheim.TesseractOCR --silent --accept-package-agreements --accept-source-agreements
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+    Write-Host "Nájdená grafická karta NVIDIA - inštalujem PaddlePaddle pre GPU..."
+    python -m pip install paddlepaddle-gpu==3.4.0 `
+        -i https://www.paddlepaddle.org.cn/packages/stable/cu129/ `
+        --extra-index-url https://pypi.org/simple
 } else {
-    Write-Host "Tesseract OCR už je nainštalovaný: $tesseractExe" -ForegroundColor Green
+    Write-Host "Inštalujem PaddlePaddle pre procesor (CPU)..."
+    python -m pip install "paddlepaddle>=3.2"
 }
-
-# jazykové dáta (slk.traineddata, eng.traineddata) sú súčasťou priečinka
-# tessdata/ v tomto projekte, netreba ich sťahovať znova.
 
 # 4. Konfigurácia - config.json nie je v gite; pri prvej inštalácii sa
 #    vytvorí zo vzoru, existujúci (skopírovaný) súbor sa nikdy neprepíše.

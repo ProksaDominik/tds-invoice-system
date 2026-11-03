@@ -82,3 +82,56 @@ class TestCountryDetection:
 
     def test_czech_diacritics_count_as_foreign(self):
         assert extractor.urci_jazyk("Daňový doklad, dodavatel, příjemce, účet, řádek") == "iny"
+
+
+class TestOcrRowAssembly:
+    """PaddleOCR returns loose text boxes; the rules need label and value on one line.
+
+    Coordinates are taken from a real 300 DPI scan of an issued invoice.
+    """
+
+    def test_label_and_value_join_with_one_space(self):
+        boxes = [[1930, 584, 2007, 632], [2030, 589, 2183, 630]]
+        assert extractor._riadky_z_boxov(boxes, ["IČO:", "36294659"]) == "IČO: 36294659"
+
+    def test_wide_gap_between_columns_becomes_three_spaces(self):
+        boxes = [[117, 588, 345, 626], [756, 584, 995, 625]]
+        text = extractor._riadky_z_boxov(boxes, ["Zlatovská 1904", "IČO: 44828390"])
+        assert text == "Zlatovská 1904   IČO: 44828390"
+
+    def test_boxes_read_left_to_right_whatever_the_input_order(self):
+        boxes = [[455, 1005, 621, 1043], [118, 1006, 359, 1044]]
+        assert extractor._riadky_z_boxov(boxes, ["07.07.2026", "Dátum dodania:"]) == "Dátum dodania:   07.07.2026"
+
+    def test_slightly_overlapping_boxes_stay_on_separate_rows(self):
+        boxes = [[116, 1081, 207, 1121], [1550, 1052, 1613, 1096]]
+        assert extractor._riadky_z_boxov(boxes, ["IBAN:", "Tel:"]) == "Tel:\nIBAN:"
+
+    def test_touching_pieces_are_glued(self):
+        boxes = [[100, 10, 160, 50], [162, 10, 220, 50]]
+        assert extractor._riadky_z_boxov(boxes, ["30 99", "3,44"]) == "30 993,44"
+
+    def test_no_boxes_no_text(self):
+        assert extractor._riadky_z_boxov([], []) == ""
+
+    def test_ocr_page_uses_detected_boxes(self, monkeypatch):
+        from PIL import Image
+
+        class FakeOcr:
+            def predict(self, image):
+                assert image.shape[2] == 3
+                return [{"rec_boxes": [[300, 10, 400, 40], [10, 10, 200, 40]],
+                         "rec_texts": [f"16.06.{YEAR}", "Dátum splatnosti:"]}]
+
+        class FakePage:
+            def to_image(self, resolution):
+                assert resolution == extractor._OCR_DPI
+                return type("Rendered", (), {"original": Image.new("L", (500, 60), 255)})()
+
+        monkeypatch.setattr(extractor, "_OCR_DOSTUPNE", True)
+        monkeypatch.setattr(extractor, "_paddle_ocr", lambda: FakeOcr())
+        assert extractor._ocr_strana(FakePage()) == f"Dátum splatnosti:   16.06.{YEAR}"
+
+    def test_without_ocr_engine_page_yields_no_text(self, monkeypatch):
+        monkeypatch.setattr(extractor, "_OCR_DOSTUPNE", False)
+        assert extractor._ocr_strana(object()) == ""

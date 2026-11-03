@@ -124,7 +124,7 @@ def summarize(rows, setups, gold, fields, gt_description, errors) -> dict:
     text_docs = [r["t_text"] for r in rows if r["ocr_pages"] == 0]
     ocr_docs = [r["t_text"] for r in rows if r["ocr_pages"] > 0]
     timings = [("Read text layer (pdfplumber)", timing_summary(text_docs)),
-               ("Read scanned PDF (Tesseract OCR, 400 DPI)", timing_summary(ocr_docs)),
+               (f"Read scanned PDF (PaddleOCR, {extractor._OCR_DPI} DPI)", timing_summary(ocr_docs)),
                ("Rule-based parsing + validation", timing_summary(
                    [r["setups"][REGEX_ONLY]["t_parse"] for r in rows])),
                ("End-to-end, regex only", timing_summary(
@@ -193,7 +193,7 @@ def main(argv=None) -> int:
         print("No PDFs to evaluate.", file=sys.stderr)
         return 1
     if not extractor._OCR_DOSTUPNE:
-        print("Warning: Tesseract not found - scanned PDFs will yield no text.", file=sys.stderr)
+        print("Warning: PaddleOCR is not installed - scanned PDFs will yield no text.", file=sys.stderr)
 
     setups: list[tuple[str, dict | None]] = [(REGEX_ONLY, None)]
     if args.llm:

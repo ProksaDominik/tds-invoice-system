@@ -11,19 +11,14 @@ alebo odberateľa.
 """
 
 import functools
+import importlib.util
 import json
 import os
 import re
-import shutil
 import unicodedata
 from datetime import datetime
 
 import pdfplumber
-
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
 
 try:
     import ollama as _ollama
@@ -49,29 +44,14 @@ try:
 except Exception:
     _ollama_client = None
 
-_TU_ADRESAR = os.path.dirname(os.path.abspath(__file__))
-_TESSDATA_DIR = os.path.join(_TU_ADRESAR, "tessdata")
-
-
-def _najdi_tesseract() -> bool:
-
-    if pytesseract is None:
-        return False
-    if shutil.which("tesseract"):
-        return True
-    for cesta in (
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-    ):
-        if os.path.exists(cesta):
-            pytesseract.pytesseract.tesseract_cmd = cesta
-            return True
-    return False
-
-
-_OCR_DOSTUPNE = _najdi_tesseract()
-if _OCR_DOSTUPNE and os.path.isdir(_TESSDATA_DIR):
-    os.environ["TESSDATA_PREFIX"] = _TESSDATA_DIR
+# OCR skenovaných strán: PaddleOCR s modelmi PP-OCRv6 (viacjazyčné, vrátane
+# slovenskej diakritiky). Modely sú zadané menom, aby aktualizácia knižnice
+# potichu nezmenila výsledky. Načítajú sa až pri prvej skenovanej strane,
+# nie pri štarte aplikácie; na počítači s grafickou kartou NVIDIA bežia na GPU.
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")  # bez ~25 s kontroly siete
+_OCR_DOSTUPNE = importlib.util.find_spec("paddleocr") is not None
+_OCR_DPI = 216  # otestované: presnejšie ako 144 DPI, 300 DPI už nič nepridá
+_OCR_MAX_STRANA = 2560  # väčšie obrázky (napr. fotky z mobilu) sa pred detekciou zmenšia
 
 
 def _bez_diakritiky(text: str) -> str:
@@ -80,20 +60,75 @@ def _bez_diakritiky(text: str) -> str:
     return "".join(c for c in norm if unicodedata.category(c) != "Mn").lower()
 
 
+@functools.lru_cache(maxsize=1)
+def _paddle_ocr():
+    """Jedna zdieľaná inštancia PaddleOCR (načítanie modelov trvá niekoľko sekúnd)."""
+    import paddle
+    from paddleocr import PaddleOCR
+
+    gpu = paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0
+    return PaddleOCR(
+        text_detection_model_name="PP-OCRv6_medium_det",
+        text_recognition_model_name="PP-OCRv6_medium_rec",
+        device="gpu:0" if gpu else "cpu",
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False,
+        use_textline_orientation=False,
+        text_det_limit_type="max",
+        text_det_limit_side_len=_OCR_MAX_STRANA,
+        # paddlepaddle 3.3 na Windows s oneDNN pri detekcii padá
+        # („ConvertPirAttribute2RuntimeAttribute not support“)
+        enable_mkldnn=False,
+    )
+
+
+def _spoj_riadok(kusy: list, vyska: float) -> str:
+    """Spojí boxy jedného riadku zľava doprava; široká medzera = ďalší stĺpec (3 medzery)."""
+    vysledok, predosly_x2 = "", None
+    for x1, x2, text in sorted(kusy, key=lambda k: k[0]):
+        if predosly_x2 is not None:
+            medzera = x1 - predosly_x2
+            if medzera > 0.8 * vyska:
+                vysledok = vysledok.rstrip() + "   "
+            elif medzera > 0.15 * vyska and not vysledok.endswith(" ") and not text.startswith(" "):
+                vysledok += " "
+        vysledok += text
+        predosly_x2 = x2
+    return vysledok.strip()
+
+
+def _riadky_z_boxov(boxy, texty) -> str:
+    """
+    OCR vracia samostatné boxy textu s polohou [x1, y1, x2, y2]. Pravidlá
+    nižšie však hľadajú popisok a hodnotu na tom istom riadku, preto sa boxy
+    zoskupia do riadkov podľa zvislého stredu a každý riadok sa prečíta zľava
+    doprava  rovnako ako text z textovej vrstvy PDF.
+    """
+    riadky = []
+    for (x1, y1, x2, y2), text in sorted(zip(boxy, texty), key=lambda b: b[0][1] + b[0][3]):
+        stred = (y1 + y2) / 2
+        if riadky and abs(stred - riadky[-1]["stred"]) < (y2 - y1) / 2:
+            riadky[-1]["kusy"].append((x1, x2, text))
+            riadky[-1]["vyska"] = max(riadky[-1]["vyska"], y2 - y1)
+        else:
+            riadky.append({"stred": stred, "vyska": y2 - y1, "kusy": [(x1, x2, text)]})
+    return "\n".join(_spoj_riadok(r["kusy"], r["vyska"]) for r in riadky)
+
+
 def _ocr_strana(strana) -> str:
 
     if not _OCR_DOSTUPNE:
         return ""
-    # vyššie rozlíšenie výrazne zlepšuje spoľahlivosť čítania tabuliek
-    # (pri 300 DPI sa riadky tabuľky DPH súm často roztrhnú na viac
-    # samostatných riadkov, pri 600 DPI zväčša ostanú vcelku). Pri bežnom
-    # objeme (do ~15 faktúr naraz) a výkonnejšom počítači sa oplatí
-    # uprednostniť presnosť pred rýchlosťou.
-    obrazok = strana.to_image(resolution=400).original
+    import numpy as np
+
+    obrazok = strana.to_image(resolution=_OCR_DPI).original.convert("RGB")
     try:
-        return pytesseract.image_to_string(obrazok, lang="slk+eng")
+        vysledok = _paddle_ocr().predict(np.asarray(obrazok)[:, :, ::-1])  # PaddleOCR čaká poradie BGR
     except Exception:
         return ""
+    if not vysledok:
+        return ""
+    return _riadky_z_boxov(vysledok[0]["rec_boxes"], vysledok[0]["rec_texts"])
 
 
 def nacitaj_text(cesta_pdf: str) -> str:

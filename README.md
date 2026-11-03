@@ -33,7 +33,7 @@ regex — cannot cover that.
 flowchart LR
     pdf[PDF invoice] --> layer{Text layer?}
     layer -- yes --> txt[pdfplumber]
-    layer -- no --> ocr[Tesseract OCR<br/>slk+eng, 400 DPI]
+    layer -- no --> ocr[PaddleOCR PP-OCRv6<br/>216 DPI]
     txt --> rules
     ocr --> rules[Rule-based extraction<br/>+ arithmetic validation]
     rules --> gap{Received invoice and a<br/>critical field still empty?}
@@ -46,7 +46,12 @@ flowchart LR
 ```
 
 1. **Text.** `pdfplumber` reads digital PDFs; pages with no usable text are
-   rendered at 400 DPI and read with Tesseract (Slovak + English).
+   rendered at 216 DPI and read with PaddleOCR (PP-OCRv6 medium detection and
+   multilingual recognition, which covers Slovak diacritics). OCR returns loose
+   text boxes, so they are regrouped into lines by vertical position and read
+   left to right, with a wide gap kept as a column break: labels and values end
+   up on one line, the same shape the rules get from a PDF text layer. It runs
+   on an NVIDIA GPU when one is present.
 2. **Rules.** Targeted extractors find the invoice number, supplier and
    customer, company IDs (IČO), issue/supply/due dates, net amount, VAT, total
    and payment reference. They handle labels wrapped onto the next line, values
@@ -137,7 +142,7 @@ Linux, Python 3.10 and 3.12.
 Windows (the production platform):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # deps, Tesseract, config.json, desktop shortcut
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # deps, PaddlePaddle (GPU/CPU), config.json, shortcut
 ```
 
 Manually, on any OS:
@@ -153,7 +158,7 @@ Optional components — the app skips a step if its component is missing:
 
 | Component | Setup |
 |---|---|
-| OCR for scans | [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) with Slovak language data |
+| OCR for scans | [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) is in `requirements.txt`; its engine is installed separately: `pip install paddlepaddle` (CPU), or `paddlepaddle-gpu` from the [PaddlePaddle index](https://www.paddlepaddle.org.cn/en/install/quick) for an NVIDIA GPU. Models (~135 MB) download on the first scan. |
 | LLM fill-in | [Ollama](https://ollama.com), then `ollama pull qwen2.5:3b-instruct` |
 | Calendar reminders | Google OAuth `credentials.json` next to `app.py` (see the user guide, §2.4) |
 

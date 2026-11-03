@@ -144,15 +144,16 @@ preskočí a použije len to, čo našli regulárne výrazy – nič sa nepokaz�
 
 ## 2.6 Presun na iný počítač
 
-1. Skopírujte **celý priečinok aplikácie** (vrátane `data/`, `tessdata/`,
+1. Skopírujte **celý priečinok aplikácie** (vrátane `data/`,
    `config.json`, `assets/` a `credentials.json`/`token.json`
    ak už existujú) na nový počítač – napr. cez USB kľúč, OneDrive alebo zdieľaný disk.
    Priečinok `__pycache__` netreba kopírovať (vytvorí sa sám).
 2. Na novom počítači spustite **`scripts/install.ps1`** (klik pravým tlačidlom →
    „Spustiť s PowerShell"). Skript automaticky:
    - doinštaluje Python knižnice z `requirements.txt`,
-   - nainštaluje Tesseract OCR (ak chýba) – jazykové dáta (slovenčina)
-     už sú súčasťou skopírovaného priečinka `tessdata/`, netreba ich sťahovať znova,
+   - nainštaluje PaddlePaddle pre OCR (čítanie skenovaných faktúr) – s grafickou
+     kartou NVIDIA verziu pre GPU, inak verziu pre procesor; modely OCR (~135 MB)
+     sa stiahnu automaticky pri prvej naskenovanej faktúre,
    - vytvorí odkaz **„Sprava faktur TDS"** na ploche s ikonou aplikácie.
 3. Ak Python ešte nie je nainštalovaný, skript vás na to upozorní –
    nainštalujte ho podľa bodu 2.1 a skript spustite znova.
@@ -187,7 +188,6 @@ preskočí a použije len to, čo našli regulárne výrazy – nič sa nepokaz�
 | `data/archiv_pdf/` | kópie všetkých nahratých PDF |
 | `credentials.json` | prístup ku Google API (vytvoríte podľa 2.4) |
 | `token.json` | uložené prihlásenie (vytvorí sa samo) |
-| `tessdata/` | jazykové dáta pre OCR (slovenčina + angličtina) |
 | `assets/icon.png`, `assets/icon.ico` | ikona aplikácie (okno, ikona na ploche) |
 | `scripts/install.ps1` | automatická inštalácia na novom počítači |
 | `docs/workflow-sk.svg` | grafický diagram celého procesu (vyššie) |
@@ -200,7 +200,7 @@ preskočí a použije len to, čo našli regulárne výrazy – nič sa nepokaz�
 Skontrolujte `ico_firmy` v `config.json`; typ vyberte ručne cez „Upraviť“.
 
 **Prázdne polia po nahratí** – faktúra má netypické rozloženie. Skenované/
-vytlačené a znova naskenované faktúry sa čítajú cez OCR (Tesseract,
+vytlačené a znova naskenované faktúry sa čítajú cez OCR (PaddleOCR,
 automaticky), no pri nezvyčajnom rozložení môže byť rozpoznávanie nepresné –
 údaje doplňte cez „Upraviť“.
 

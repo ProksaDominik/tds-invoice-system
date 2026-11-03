@@ -2,7 +2,7 @@
 
 The extractor's only I/O boundary is ``extractor.nacitaj_text`` (PDF -> text,
 with OCR fallback). Tests replace it with a stub that returns synthetic
-invoice text, so the full parsing pipeline runs without PDFs, Tesseract or
+invoice text, so the full parsing pipeline runs without PDFs, PaddleOCR or
 Ollama.
 """
 
