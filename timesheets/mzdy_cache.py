@@ -9,12 +9,10 @@ sieťového súboru cez mzdy_siet.py.
 import json
 import os
 
-ZAMESTNANCI_SEED = [
-    "Novák", "Kováč", "Horváth", "Varga", "Tóth", "Nagy", "Szabó", "Molnár",
-]
-
-ZAKAZKY_SEED = [
-]
+# Počiatočné údaje pre autofill sa NEUKLADAJÚ v kóde (mená zamestnancov a
+# zoznam zákaziek sú interné údaje firmy). Zamestnanci sa pri prvom spustení
+# prevezmú z config.json ("zamestnanci_stlpce"), názvy zákaziek sa cache
+# naučí postupne pri schvaľovaní výkazov (uloz_nazov_zakazky).
 
 
 class MzdyCache:
@@ -29,9 +27,10 @@ class MzdyCache:
 
     def _pociatocne_udaje(self) -> dict:
         predvolena = self.konfig.get("predvolena_sadzba", 12)
+        zamestnanci = self.konfig.get("zamestnanci_stlpce") or {}
         return {
-            "zamestnanci": {meno: predvolena for meno in ZAMESTNANCI_SEED},
-            "zakazky": dict(ZAKAZKY_SEED),
+            "zamestnanci": {meno: predvolena for meno in zamestnanci},
+            "zakazky": {},
         }
 
     def _nacitaj(self) -> dict:

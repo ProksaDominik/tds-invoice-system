@@ -12,18 +12,10 @@ import unicodedata
 
 from openpyxl import load_workbook
 
-# meno zamestnanca -> stĺpec, kde v mesačnom hárku začína jeho 6-stĺpcový blok
-# (Hod | Výkon | prémie% | mzda | prémie | Mzda spolu)
-EMPLOYEE_STLPCE = {
-    "Novák": 6,
-    "Kováč": 12,
-    "Horváth": 18,
-    "Varga": 24,
-    "Tóth": 30,
-    "Nagy": 36,
-    "Szabó": 48,
-    "Molnár": 54,
-}
+# Mapovanie priezvisko zamestnanca -> stĺpec, kde v mesačnom hárku začína
+# jeho 6-stĺpcový blok (Hod | Výkon | prémie% | mzda | prémie | Mzda spolu).
+# Ide o osobné údaje, preto nie sú v kóde, ale v config.json (kľúč
+# "zamestnanci_stlpce"), ktorý nie je v gite, napr. {"Novák": 6, "Kováč": 12}.
 
 MESIACE = {
     1: "Január",
@@ -50,20 +42,19 @@ def _bez_diakritiky(text: str) -> str:
     return "".join(c for c in norm if unicodedata.category(c) != "Mn").lower()
 
 
-def _najdi_zamestnanca(zadane_meno: str):
-    """Nájde zamestnanca z EMPLOYEE_STLPCE podľa priezviska obsiahnutého v
-    zadanom mene. OCR/Gemini/Azure vždy prečíta CELÉ meno z formulára
-    ("Ján Novák"), nie len priezvisko ("Novák") - priamočiare
-    porovnanie na presnú zhodu by preto takmer nikdy neprešlo. Porovnáva sa
-    bez diakritiky a bez ohľadu na veľkosť písmen; priezvisko musí byť v
-    zadanom mene celé samostatné slovo (nie len časť iného slova). Vráti
-    skutočný kľúč zo slovníka (so správnou diakritikou), alebo None, ak
-    zamestnanec v zozname nie je (vtedy naozaj nie je kam zapísať - v
-    zošite preň nie je stĺpec)."""
+def _najdi_zamestnanca(zadane_meno: str, zamestnanci_stlpce: dict):
+    """Nájde zamestnanca zo 'zamestnanci_stlpce' podľa priezviska obsiahnutého
+    v zadanom mene. OCR/Gemini/Azure vždy prečíta CELÉ meno z formulára
+    ("Ján Novák"), nie len priezvisko ("Novák") - priamočiare porovnanie na
+    presnú zhodu by preto takmer nikdy neprešlo. Porovnáva sa bez diakritiky
+    a bez ohľadu na veľkosť písmen; priezvisko musí byť v zadanom mene celé
+    samostatné slovo (nie len časť iného slova). Vráti skutočný kľúč zo
+    slovníka (so správnou diakritikou), alebo None, ak zamestnanec v zozname
+    nie je (vtedy naozaj nie je kam zapísať - v zošite preň nie je stĺpec)."""
     if not zadane_meno:
         return None
     slova_zadane = set(_bez_diakritiky(zadane_meno).split())
-    for priezvisko in EMPLOYEE_STLPCE:
+    for priezvisko in zamestnanci_stlpce:
         if _bez_diakritiky(priezvisko) in slova_zadane:
             return priezvisko
     return None
@@ -88,8 +79,9 @@ def _zorad_mesacne_harky(wb):
 class SietovyZapis:
     """Zapisuje schválené hodiny priamo do sieťového mzdového zošitu."""
 
-    def __init__(self, cesta: str):
+    def __init__(self, cesta: str, zamestnanci_stlpce: dict | None = None):
         self.cesta = cesta
+        self.zamestnanci_stlpce = zamestnanci_stlpce or {}
 
     def _najdi_riadok_zakazky(self, sumar_ws, kod: str):
         kod = str(kod).strip()
@@ -139,11 +131,15 @@ class SietovyZapis:
         """polozky: iterovateľné {"zakazka": kod, "hodiny": súčet hodín}.
         Vráti zoznam kódov zákaziek, ktoré neboli nájdené v SUMAR (a teda
         neboli zapísané)."""
-        skutocny = _najdi_zamestnanca(zamestnanec)
+        if not self.zamestnanci_stlpce:
+            raise ValueError(
+                "V config.json chýba 'zamestnanci_stlpce' (priezvisko -> stĺpec "
+                "v mzdovom zošite) - bez neho nie je kam zapísať hodiny.")
+        skutocny = _najdi_zamestnanca(zamestnanec, self.zamestnanci_stlpce)
         if skutocny is None:
             raise ValueError(f"Neznámy zamestnanec pre sieťový zápis: {zamestnanec!r}")
 
-        stlpec = EMPLOYEE_STLPCE[skutocny]
+        stlpec = self.zamestnanci_stlpce[skutocny]
 
         wb = load_workbook(self.cesta)
         try:

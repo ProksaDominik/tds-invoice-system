@@ -6,6 +6,7 @@
     "priecinok_vstup": "vykazy",
     "priecinok_spracovane": "vykazy_spracovane",
     "predvolena_sadzba": 12,
+    "zamestnanci_stlpce": {"Novák": 6, "Kováč": 12},
     "mena": "€",
     "ocr_rozlisenie_dpi": 300,
     "pouzit_gemini": true,

@@ -810,7 +810,8 @@ class Aplikacia(ttk.Window):
 
         while True:
             try:
-                preskocene = SietovyZapis(cesta_mzdy).zapis_hodiny(
+                preskocene = SietovyZapis(
+                    cesta_mzdy, KONFIG.get("zamestnanci_stlpce")).zapis_hodiny(
                     v["zamestnanec"], v["mesiac"], v["rok"], polozky, v.get("sadzba"))
                 break
             except PermissionError as e:
