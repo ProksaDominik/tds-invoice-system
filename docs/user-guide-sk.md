@@ -10,6 +10,8 @@ do tohto termínu.
 Všetko beží **lokálne na vašom počítači** – žiadne dáta sa neposielajú na
 cudzie servery (okrem vytvorenia udalosti vo vašom Google Kalendári).
 
+![Priebeh spracovania faktúry](workflow-sk.svg)
+
 ---
 
 ## 1. Ako to funguje (workflow)
@@ -67,8 +69,12 @@ pip install -r requirements.txt
 
 ### 2.3 Nastavenie firmy – DÔLEŽITÉ
 
-Otvorte `config.json` a doplňte **skutočné IČO firmy TDS s.r.o.**
-(teraz je tam vzorové `12345678`):
+Nastavenia sú v súbore `config.json`. Ten nie je súčasťou gitu (obsahuje
+cesty konkrétneho počítača); pri prvej inštalácii ho `scripts/install.ps1`
+vytvorí zo vzoru `config.example.json`, prípadne ho skopírujte ručne.
+
+V `config.json` doplňte **skutočné IČO firmy TDS s.r.o.** (vo vzore je
+`12345678`):
 
 ```json
 "ico_firmy": "VAŠE_IČO",
@@ -79,6 +85,9 @@ byť správne. Ďalšie voľby v `config.json`:
 
 | Kľúč | Význam |
 |---|---|
+| `subor_prijate`, `subor_vystavene`, `subor_zaloha` | cesty k hlavným tabuľkám a záložnej tabuľke |
+| `priecinok_invoices` | priečinok so skenmi faktúr na spracovanie |
+| `priecinok_faktury`, `priecinok_faktury_pre_skladnikov` | archív schválených PDF a kópie pre sklad |
 | `hromadny_termin` | každoročný termín splatnosti pre spoločné pripomienky (predvolené `30.06.`) |
 | `hromadne_pripomienky_dni` | koľko dní pred termínom prídu spoločné pripomienky (predvolené 20 a 10) |
 | `kalendar_len_vystavene` | `true` = udalosti len pre vystavené faktúry; `false` = aj pre prijaté |
@@ -126,7 +135,7 @@ V `config.json` je možné doplnenie ovládať:
 |---|---|
 | `ollama_zapnute` | `false` = AI doplnenie úplne vypnúť (iba regulárne výrazy) |
 | `ollama_model` | názov modelu, ktorý sa má použiť (predvolené `qwen2.5:3b-instruct`) |
-| `ollama_pokusy` | koľkokrát sa má AI skúsiť opýtať na stále chýbajúce polia (predvolené 3  malý model niekedy nájde pole až na 2. či 3. pokus) |
+| `ollama_pokusy` | koľkokrát sa má AI skúsiť opýtať na stále chýbajúce polia (vo vzorovom config.json 1; vyššia hodnota pomôže, ak malý model nájde pole až na 2. či 3. pokus, ale spomalí spracovanie) |
 
 Ak Ollama nebeží alebo model nie je stiahnutý, aplikácia to potichu
 preskočí a použije len to, čo našli regulárne výrazy – nič sa nepokazí.
@@ -136,16 +145,16 @@ preskočí a použije len to, čo našli regulárne výrazy – nič sa nepokaz�
 ## 2.6 Presun na iný počítač
 
 1. Skopírujte **celý priečinok aplikácie** (vrátane `data/`, `tessdata/`,
-   `config.json`, `icon.png`/`icon.ico` a `credentials.json`/`token.json`
-   ak už existujú) na nový počítač  napr. cez USB kľúč, OneDrive alebo zdieľaný disk.
+   `config.json`, `assets/` a `credentials.json`/`token.json`
+   ak už existujú) na nový počítač – napr. cez USB kľúč, OneDrive alebo zdieľaný disk.
    Priečinok `__pycache__` netreba kopírovať (vytvorí sa sám).
-2. Na novom počítači spustite **`instalacia.ps1`** (klik pravým tlačidlom →
+2. Na novom počítači spustite **`scripts/install.ps1`** (klik pravým tlačidlom →
    „Spustiť s PowerShell"). Skript automaticky:
    - doinštaluje Python knižnice z `requirements.txt`,
-   - nainštaluje Tesseract OCR (ak chýba)  jazykové dáta (slovenčina)
+   - nainštaluje Tesseract OCR (ak chýba) – jazykové dáta (slovenčina)
      už sú súčasťou skopírovaného priečinka `tessdata/`, netreba ich sťahovať znova,
    - vytvorí odkaz **„Sprava faktur TDS"** na ploche s ikonou aplikácie.
-3. Ak Python ešte nie je nainštalovaný, skript vás na to upozorní 
+3. Ak Python ešte nie je nainštalovaný, skript vás na to upozorní –
    nainštalujte ho podľa bodu 2.1 a skript spustite znova.
 4. Ak používate Google Kalendár a skopírovali ste aj `credentials.json`,
    pri prvom schválení faktúry na novom počítači sa otvorí prehliadač na
@@ -156,7 +165,7 @@ preskočí a použije len to, čo našli regulárne výrazy – nič sa nepokaz�
 ## 3. Denné používanie
 
 1. Kliknite na odkaz **„Sprava faktur TDS“** na ploche (vytvorený cez
-   `instalacia.ps1`), alebo dvojklik na `start.bat` (alebo `python app.py`).
+   `scripts/install.ps1`), alebo dvojklik na `start.bat` (alebo `python app.py`).
 2. **Nahrať faktúru (PDF)** → vyberte faktúry.
 3. Skontrolujte riadky v tabuľke, prípadne **Upraviť**.
 4. **Schváliť** → zápis do hlavnej tabuľky + udalosť v kalendári.
@@ -179,9 +188,9 @@ preskočí a použije len to, čo našli regulárne výrazy – nič sa nepokaz�
 | `credentials.json` | prístup ku Google API (vytvoríte podľa 2.4) |
 | `token.json` | uložené prihlásenie (vytvorí sa samo) |
 | `tessdata/` | jazykové dáta pre OCR (slovenčina + angličtina) |
-| `icon.png` / `icon.ico` | ikona aplikácie (okno, ikona na ploche) |
-| `instalacia.ps1` | automatická inštalácia na novom počítači |
-| `diagram_workflow.svg` | grafický diagram celého procesu |
+| `assets/icon.png`, `assets/icon.ico` | ikona aplikácie (okno, ikona na ploche) |
+| `scripts/install.ps1` | automatická inštalácia na novom počítači |
+| `docs/workflow-sk.svg` | grafický diagram celého procesu (vyššie) |
 
 ---
 

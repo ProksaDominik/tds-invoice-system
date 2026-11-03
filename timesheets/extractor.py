@@ -11,7 +11,7 @@ Postup pre každú stranu PDF:
       pošle NAraz cez Gemini API (google-genai, model "gemini-flash-latest",
       structured JSON výstup)  jedno volanie na stranu, číta meno/mesiac/
       rok aj všetky riadky zákaziek s hodinami naraz. Presnosť na rukopise
-      je výrazne vyššia než lokálny Tesseract (pozri NAVOD.md, porovnanie).
+      je výrazne vyššia než lokálny Tesseract (pozri user-guide-sk.md, porovnanie).
       Vyžaduje API kľúč (config.json → "gemini_api_key_subor", zdarma na
       https://aistudio.google.com/apikey).
   3b. ZÁLOŽNE (keď Gemini zlyhá/chýba kľúč/žiadne pripojenie): lokálny

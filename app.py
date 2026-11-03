@@ -186,7 +186,9 @@ MAPOVANIE_DOSLE = {
 
 SVETLA_TEMA = "flatly"
 TMAVA_TEMA = "darkly"
-IKONA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
+_ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+IKONA = os.path.join(_ASSETS, "icon.ico")
+LOGO = os.path.join(_ASSETS, "icon.png")
 
 
 class Aplikacia(ttk.Window):
@@ -259,10 +261,9 @@ class Aplikacia(ttk.Window):
         vnutro = ttk.Frame(hlavicka, bootstyle="primary", padding=(20, 16))
         vnutro.pack(fill=X)
 
-        if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")):
+        if os.path.exists(LOGO):
             from PIL import Image, ImageTk
-            obrazok = Image.open(os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "icon.png"))
+            obrazok = Image.open(LOGO)
             obrazok = obrazok.resize((40, 40), Image.LANCZOS)
             self._logo = ImageTk.PhotoImage(obrazok)
             ttk.Label(vnutro, image=self._logo, bootstyle="inverse-primary").pack(

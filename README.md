@@ -12,7 +12,7 @@ and ventilation company. It replaces manual retyping of invoice data.
 > **Privacy by design:** everything runs locally. Invoice text never leaves
 > the machine. The only external call is creating the calendar events.
 
-![Workflow](diagram_workflow.svg)
+![Workflow](docs/workflow-sk.svg)
 
 ## The problem
 
@@ -78,8 +78,8 @@ Qwen2.5-VL) · openpyxl · Google Calendar API (OAuth 2.0) · ttkbootstrap
 | `excel_manager.py` | Staging and main Excel ledgers |
 | `calendar_manager.py` | Google Calendar events and rolling reminders |
 | `config.json` | Company ID, reminder schedule, AI/OCR switches |
-| `instalacia.ps1` | One-click setup on a new machine (dependencies, Tesseract, desktop shortcut) |
-| `NAVOD.md` | End-user manual (Slovak) |
+| `scripts/install.ps1` | One-click setup on a new machine (dependencies, Tesseract, desktop shortcut) |
+| `docs/user-guide-sk.md` | End-user manual (Slovak) |
 
 ## Running it
 
@@ -90,7 +90,7 @@ python app.py
 
 Optional features:
 
-- **OCR:** install Tesseract (`instalacia.ps1` does this on Windows).
+- **OCR:** install Tesseract (`scripts/install.ps1` does this on Windows).
 - **Local AI:** install [Ollama](https://ollama.com), then run
   `ollama pull llama3.1:8b`. For the vision fallback, also run
   `ollama pull qwen2.5vl:7b`.
@@ -99,7 +99,7 @@ Optional features:
 
 If Ollama, Tesseract or Google credentials are missing, the app skips that
 step and still works. Full setup steps for the end user are in
-[`NAVOD.md`](NAVOD.md) (Slovak).
+[`docs/user-guide-sk.md`](docs/user-guide-sk.md) (Slovak).
 
 ## Data handling
 

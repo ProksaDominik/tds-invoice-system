@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-# instalacia.ps1  jednorazová inštalácia aplikácie na novom počítači.
+# install.ps1 - jednorazová inštalácia aplikácie na novom počítači.
 # Spustite kliknutím pravým tlačidlom na tento súbor -> "Spustiť s PowerShell",
-# alebo v PowerSheli: powershell -ExecutionPolicy Bypass -File instalacia.ps1
+# alebo v PowerSheli: powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 
 $ErrorActionPreference = "Stop"
-$projekt = $PSScriptRoot
+# skript je v podpriečinku scripts\, projekt je o úroveň vyššie
+$projekt = Split-Path $PSScriptRoot -Parent
 
 Write-Host "== Inštalácia: Správa faktúr TDS s.r.o. ==" -ForegroundColor Cyan
 Write-Host "Priečinok projektu: $projekt"
@@ -46,14 +47,22 @@ if (-not $tesseractExe) {
 # jazykové dáta (slk.traineddata, eng.traineddata) sú súčasťou priečinka
 # tessdata/ v tomto projekte, netreba ich sťahovať znova.
 
-# 4. Odkaz na pracovnej ploche
+# 4. Konfigurácia - config.json nie je v gite; pri prvej inštalácii sa
+#    vytvorí zo vzoru, existujúci (skopírovaný) súbor sa nikdy neprepíše.
+$konfig = Join-Path $projekt "config.json"
+if (-not (Test-Path $konfig)) {
+    Copy-Item (Join-Path $projekt "config.example.json") $konfig
+    Write-Host "Vytvorený config.json zo vzoru - doplňte IČO firmy a cesty." -ForegroundColor Yellow
+}
+
+# 5. Odkaz na pracovnej ploche
 Write-Host ""
 Write-Host "Vytváram odkaz na ploche..."
 $desktop = [Environment]::GetFolderPath("Desktop")
 $pythonDir = Split-Path $python.Source
 $pythonw = Join-Path $pythonDir "pythonw.exe"
 $shortcutPath = Join-Path $desktop "Sprava faktur TDS.lnk"
-$ikona = Join-Path $projekt "icon.ico"
+$ikona = Join-Path $projekt "assets\icon.ico"
 
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
@@ -70,6 +79,6 @@ Write-Host "Odkaz vytvorený: $shortcutPath" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "== Hotovo ==" -ForegroundColor Cyan
-Write-Host "Skontrolujte 'ico_firmy' v config.json, ak ste ho ešte neskopírovali s projektom."
+Write-Host "Skontrolujte 'ico_firmy' a cesty k súborom v config.json."
 Write-Host "Ak používate Google Kalendár, skopírujte aj credentials.json (token.json sa vytvorí"
 Write-Host "znova pri prvom schválení faktúry - otvorí sa prehliadač na prihlásenie)."

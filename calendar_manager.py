@@ -23,7 +23,7 @@ s dátumom v minulosti sa preskakujú (nemá zmysel spätne pridávať
 notifikácie na už uplynulé dni).
 
 AKTIVÁCIA: modul je pripravený, ale spí, kým vedľa aplikácie nie je súbor
-credentials.json (návod v NAVOD.md). Prvé použitie otvorí prehliadač na
+credentials.json (návod v docs/user-guide-sk.md). Prvé použitie otvorí prehliadač na
 prihlásenie do Google účtu; token sa uloží do token.json a ďalej všetko
 beží automaticky.
 """
@@ -212,7 +212,7 @@ class CalendarManager:
                 if not os.path.exists(creds_file):
                     raise RuntimeError(
                         f"Súbor {creds_file} sa nenašiel.\n"
-                        "Postupujte podľa NAVOD.md  časť Google Calendar API.")
+                        "Postupujte podľa docs/user-guide-sk.md, časť Google Calendar API.")
                 flow = InstalledAppFlow.from_client_secrets_file(creds_file, SCOPES)
                 self.creds = flow.run_local_server(port=0)
             with open(token, "w") as f:
