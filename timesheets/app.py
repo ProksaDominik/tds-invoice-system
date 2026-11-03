@@ -45,8 +45,24 @@ import extractor
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-with open("config.json", encoding="utf-8") as f:
-    KONFIG = json.load(f)
+def _nacitaj_konfig(cesta: str = "config.json") -> dict:
+    """Načíta config.json. Súbor nie je v gite (obsahuje cesty a nastavenia
+    konkrétneho počítača); ak chýba, používateľ dostane jasnú správu
+    namiesto tichého pádu pod pythonw."""
+    if not os.path.exists(cesta):
+        koren = tk.Tk()
+        koren.withdraw()
+        messagebox.showerror(
+            "Chýba config.json",
+            "V priečinku aplikácie chýba súbor config.json.\n\n"
+            "Skopírujte config.example.json ako config.json a doplňte "
+            "cestu k mzdovému súboru a API kľúče.")
+        raise SystemExit(1)
+    with open(cesta, encoding="utf-8") as f:
+        return json.load(f)
+
+
+KONFIG = _nacitaj_konfig()
 
 os.makedirs(KONFIG["priecinok_dat"], exist_ok=True)
 os.makedirs(KONFIG["priecinok_vstup"], exist_ok=True)

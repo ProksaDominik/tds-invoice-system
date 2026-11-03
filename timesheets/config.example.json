@@ -2,7 +2,7 @@
     "nazov_firmy": "TDS s.r.o.",
     "priecinok_dat": "data",
     "subor_dochadzka": "data/dochadzka.xlsx",
-    "subor_mzdy_siet": "data/Mzdy 2026.xlsx",
+    "subor_mzdy_siet": "data/Mzdy {rok}.xlsx",
     "priecinok_vstup": "vykazy",
     "priecinok_spracovane": "vykazy_spracovane",
     "predvolena_sadzba": 12,
@@ -11,7 +11,7 @@
     "pouzit_gemini": true,
     "gemini_model": "gemini-flash-latest",
     "gemini_api_key_subor": "gemini_api_key.txt",
-    "pouzit_azure": true,
+    "pouzit_azure": false,
     "azure_di_endpoint": "https://<your-resource>.cognitiveservices.azure.com/",
     "azure_di_kluc_subor": "azure_di_key.txt"
 }
