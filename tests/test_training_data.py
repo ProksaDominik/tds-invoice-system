@@ -81,9 +81,9 @@ class TestWordLabels:
 
     def test_every_occurrence_is_tagged(self):
         tags, found = self.L.tag_words(self.WORDS, self.VALUES)
-        assert found == {"TOTAL": True, "VS": True, "DUE": True}
+        assert found == {"TOTAL": True, "VS": True}
         assert [i for i, t in enumerate(tags) if t == "B-VS"] == [1, 4]
-        assert tags[7:10] == ["B-DUE", "I-DUE", "I-DUE"]
+        assert tags[7:10] == ["O", "O", "O"]  # the QR date is not a due date, so dates are never labelled
         assert tags[11:13] == ["B-TOTAL", "I-TOTAL"] and tags[16:18] == ["B-TOTAL", "I-TOTAL"]
 
     def test_a_partial_number_is_not_the_total(self):

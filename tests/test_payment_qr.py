@@ -83,6 +83,11 @@ class TestCombiningSources:
         labels, note = qr.labels_from_payments([self.payment(), self.payment()])
         assert labels["suma_s_dph"] == "10.00" and note == "payment QR" and "iban" in labels
 
+    def test_qr_date_is_not_used_as_due_date(self):
+        # ONIX writes the issue date there; scored as a due date it made correct extraction look wrong
+        labels, _ = qr.labels_from_payments([self.payment()])
+        assert "datum_splatnosti" not in labels
+
     def test_two_different_codes_give_no_labels(self):
         labels, note = qr.labels_from_payments([self.payment(), self.payment(amount="99.00")])
         assert labels == {} and note.startswith("ambiguous")

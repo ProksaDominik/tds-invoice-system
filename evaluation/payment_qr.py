@@ -3,7 +3,13 @@
 Most Slovak invoices carry a PAY by square QR code, Czech ones a QR Platba
 (SPD) code. The issuer's accounting system generates them from the invoice
 data, and the extractor never reads them, so they are an independent source
-for three fields: amount to pay, variable symbol and due date.
+for two fields: the amount to pay and the variable symbol.
+
+The QR code's date is *not* used. It is meant to be the due date, but ONIX
+fills it with the issue date (220 of 242 issued invoices: exactly 14, 30 or
+60 days - the payment terms - before the printed due date), and suppliers
+differ (22 due date, 16 issue date). Scored as a due date it made a correct
+extractor look 7 % accurate.
 
 The archive file name adds two more: received invoices are filed under the
 internal number a person assigned on approval (DF0451-26, zDF0084-26), and
@@ -101,14 +107,13 @@ def labels_from_payments(payments: list[dict]) -> tuple[dict, str]:
     Two different payment codes in one document make it ambiguous which one
     belongs to the invoice, so such a document gets no QR labels at all.
     """
-    distinct = {(p["amount"], p["variable_symbol"], p["due_date"]) for p in payments}
+    distinct = {(p["amount"], p["variable_symbol"]) for p in payments}
     if not distinct:
         return {}, ""
     if len(distinct) > 1:
         return {}, "ambiguous: several different payment codes"
     p = payments[0]
-    return {"suma_s_dph": p["amount"], "variabilny_symbol": p["variable_symbol"],
-            "datum_splatnosti": p["due_date"], "iban": p["iban"]}, "payment QR"
+    return {"suma_s_dph": p["amount"], "variabilny_symbol": p["variable_symbol"], "iban": p["iban"]}, "payment QR"
 
 
 def read_payment_codes(pdf: Path) -> list[dict]:
@@ -156,8 +161,7 @@ def main(argv=None) -> int:
     pdfs = sorted(p for p in Path(args.pdfs).rglob("*") if p.suffix.lower() == ".pdf")
     rows, stats = build_labels(pdfs)
     # iban is not scored; it identifies the supplier when splitting data for training
-    columns = ["file", "typ", "cislo_faktury", "suma_s_dph", "variabilny_symbol", "datum_splatnosti",
-               "iban", "label_source"]
+    columns = ["file", "typ", "cislo_faktury", "suma_s_dph", "variabilny_symbol", "iban", "label_source"]
     with open(args.out, "w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=columns)
         writer.writeheader()

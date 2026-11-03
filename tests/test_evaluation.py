@@ -162,3 +162,28 @@ def test_cli_end_to_end_writes_publishable_report(tmp_path, monkeypatch):
     assert "| Total amount | 1 | 1 | 0 | 0 | **100.0%**" in report_md
     assert "Ventilácie" not in report_md  # aggregate only, no invoice contents
     assert (tmp_path / "out" / "per_document.csv").exists()
+
+
+class TestRescore:
+    def test_rescore_uses_saved_predictions_and_keeps_timings(self, tmp_path):
+        from evaluation import rescore
+
+        run = tmp_path / "run"
+        run.mkdir()
+        setup = cli.REGEX_ONLY
+        summary = {"documents": 2, "text_layer_docs": 2, "ocr_docs": 0, "errors": 0, "machine": "test box",
+                   "setups": [{"name": setup}], "timings": [["Rule-based parsing + validation", None]]}
+        (run / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+        with open(run / "per_document.csv", "w", encoding="utf-8-sig", newline="") as fh:
+            fh.write(f"file,ocr_pages,t_text,t_parse [{setup}],suma_s_dph [{setup}],datum_splatnosti [{setup}]\n")
+            fh.write("a.pdf,0,0.1,0.01,100.00,01.08.2026\nb.pdf,0,0.1,0.01,50.00,02.08.2026\n")
+        labels = tmp_path / "labels.csv"
+        labels.write_text("file,suma_s_dph\na.pdf,100.00\nb.pdf,55.00\n", encoding="utf-8")
+
+        result = rescore.rescore(run, str(labels), tmp_path / "out")
+
+        scores = result["setups"][0]["scores"]["suma_s_dph"]
+        assert (scores.correct, scores.wrong) == (1, 1)
+        assert result["machine"] == "test box" and result["rescored_from"] == "run"
+        assert "datum_splatnosti" not in result["setups"][0]["scores"]
+        assert (tmp_path / "out" / "report.md").exists()

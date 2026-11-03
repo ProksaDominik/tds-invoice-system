@@ -1,5 +1,5 @@
-"""Fine-tune LiLT, a layout-aware transformer, to find the amount to pay, the
-variable symbol and the due date on an invoice page.
+"""Fine-tune LiLT, a layout-aware transformer, to find the amount to pay and
+the variable symbol on an invoice page.
 
 Input per document: the words with their positions (training/extraction/
 dump_words.py) and word tags derived from the payment QR code (labels.py).
@@ -193,7 +193,7 @@ def test(args) -> None:
     setups = sorted({h.split(" [", 1)[1][:-1] for h in header if h.startswith("suma_s_dph [")})
     lines = ["# Extraction model vs rules on the test split", "",
              f"- Test documents: {len(test_docs)} (suppliers not seen in training)",
-             "- Ground truth: payment QR codes (amount to pay, variable symbol, due date)", ""]
+             "- Ground truth: payment QR codes (amount to pay, variable symbol)", ""]
     summary: dict[str, dict] = {}  # aggregates only, for the results notebook
     for group in ("all", "Prijatá", "Vystavená"):
         idx = [i for i, d in enumerate(test_docs) if group == "all" or d["typ"] == group]

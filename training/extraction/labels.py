@@ -2,9 +2,9 @@
 
 Given a document's words and the values its payment QR code states, every
 word sequence that reads as that value is tagged (BIO scheme). Comparison
-uses the evaluation harness's normalisation, so "1 145,93 €" matches 1145.93
-and "8. 7. 2026" matches 08.07.2026. A value that appears in several places
-(the total in the VAT recap and in the "to pay" line) is tagged everywhere.
+uses the evaluation harness's normalisation, so "1 145,93 €" matches 1145.93.
+A value that appears in several places (the total in the VAT recap and in the
+"to pay" line) is tagged everywhere.
 
 No PyTorch here; training and inference build on these functions.
 """
@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from evaluation.metrics import normalize
 
-FIELDS = {"TOTAL": ("suma_s_dph", "amount"), "VS": ("variabilny_symbol", "digits"),
-          "DUE": ("datum_splatnosti", "date")}
+# The QR code's date is not a reliable due date (see evaluation/payment_qr.py), so no date field here.
+FIELDS = {"TOTAL": ("suma_s_dph", "amount"), "VS": ("variabilny_symbol", "digits")}
 TAGS = ["O"] + [f"{p}-{f}" for f in FIELDS for p in ("B", "I")]
 TAG_ID = {t: i for i, t in enumerate(TAGS)}
 MAX_SPAN = 4  # words; "1 145 093,40 EUR" is four
