@@ -34,7 +34,7 @@ from datetime import datetime
 from tkinter import filedialog, messagebox
 
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import BOTH, BOTTOM, LEFT, RIGHT, TOP, X, Y, YES
+from ttkbootstrap.constants import BOTH, BOTTOM, LEFT, RIGHT, TOP, X, Y
 
 from PIL import Image, ImageTk
 

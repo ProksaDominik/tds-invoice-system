@@ -25,9 +25,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import BOTH, BOTTOM, LEFT, RIGHT, TOP, X, Y
+from ttkbootstrap.constants import BOTH, BOTTOM, LEFT, RIGHT, TOP, X
 
-from excel_manager import ExcelManager, STAV_CAKA
+from excel_manager import ExcelManager
 from calendar_manager import CalendarManager
 import extractor
 
@@ -693,7 +693,9 @@ class Aplikacia(ttk.Window):
             except PermissionError as e:
                 retry = messagebox.askretrycancel(
                     "Súbor je otvorený",
-                    f"Nemôžem zápísať do hlavnej tabuľky (súbor je pravdepodobne otvorený v Exceli):\n{e}\n\nZatvorte súbor v Exceli a stlačte 'Opakovať', alebo 'Zrušiť' pre prerušenie.")
+                    "Nemôžem zapísať do hlavnej tabuľky (súbor je pravdepodobne "
+                    f"otvorený v Exceli):\n{e}\n\nZatvorte súbor v Exceli a stlačte "
+                    "'Opakovať', alebo 'Zrušiť' pre prerušenie.")
                 if not retry:
                     return
                 # loop will retry
@@ -907,7 +909,6 @@ class Aplikacia(ttk.Window):
         """Zapíše nový Typ/Jazyk do zálohy; ak sa mení na Prijatú a záznam
         ešte nemá „Číslo fa - naše", prizná mu ho tu (rovnakou logikou
         ako pri nahrávaní faktúry cez _rezervuj_cislo_archivu)."""
-        from excel_manager import STLPCE_ZALOHA
         from openpyxl import load_workbook
         nove = {"Typ": typ, "Jazyk": jazyk}
         # Ak je nový typ Prijatá a záznam nemá pridelené DF/zDF číslo,

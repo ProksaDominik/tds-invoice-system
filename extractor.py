@@ -54,7 +54,7 @@ _TESSDATA_DIR = os.path.join(_TU_ADRESAR, "tessdata")
 
 
 def _najdi_tesseract() -> bool:
-    
+
     if pytesseract is None:
         return False
     if shutil.which("tesseract"):
@@ -718,7 +718,7 @@ def _urci_typ_podla_mena(text: str, ico_firmy: str, varianty_nazvu: list) -> str
             return "Prijatá"
         return "Neurčené"
 
-    
+
     if poz_odb != -1 and poz_tds >= poz_odb:
         return "Prijatá"
     if poz_dod != -1 and poz_tds >= poz_dod:
@@ -1165,7 +1165,7 @@ def _pravdepodobne_rovnaka_firma(nazov: str, varianty_nazvu: list) -> bool:
 
 
 def _najdi_druhu_firmu_na_riadku(text: str, varianty_nazvu: list) -> str:
-    
+
     for riadok in text.splitlines():
         r = riadok.strip()
         for variant in varianty_nazvu:

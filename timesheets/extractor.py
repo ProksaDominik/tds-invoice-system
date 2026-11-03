@@ -26,6 +26,7 @@ a opravu v appke pred zápisom do Excelu (viď app.py).
 
 import io
 import json
+import logging
 import os
 import re
 import time
@@ -61,7 +62,6 @@ _TU_ADRESAR = os.path.dirname(os.path.abspath(__file__))
 _TESSDATA_DIR = os.path.join(_TU_ADRESAR, "tessdata")
 
 # simple per-run file logger for debugging grouping/recognition issues
-import logging
 _logger = logging.getLogger("extractor_debug")
 if not _logger.handlers:
     try:
@@ -995,7 +995,9 @@ def zluc_stranyd_do_vykazov(vysledky_stran: list, nazov_zdroja: str) -> list:
         # log a short summary of detected headers
         for i, s in enumerate(vysledky_stran):
             h = s.get("hlavicka") or {}
-            _logger.debug("Page %d header: name=%r month=%r year=%r src=%r", i, h.get("zamestnanec"), h.get("mesiac"), h.get("rok"), s.get("pouzity_zdroj"))
+            _logger.debug("Page %d header: name=%r month=%r year=%r src=%r", i,
+                          h.get("zamestnanec"), h.get("mesiac"), h.get("rok"),
+                          s.get("pouzity_zdroj"))
     except Exception:
         pass
 
@@ -1019,7 +1021,9 @@ def zluc_stranyd_do_vykazov(vysledky_stran: list, nazov_zdroja: str) -> list:
         rozdelit, isty = _su_rozcestene_hlavicky(aktualna_hlavicka, strana["hlavicka"])
         if rozdelit:
             try:
-                _logger.debug("Splitting group before page %d (isty=%s): current_header=%r next_header=%r", idx, isty, aktualna_hlavicka, strana["hlavicka"])
+                _logger.debug("Splitting group before page %d (isty=%s): "
+                              "current_header=%r next_header=%r",
+                              idx, isty, aktualna_hlavicka, strana["hlavicka"])
             except Exception:
                 pass
             skupiny.append(aktualna_skupina)

@@ -149,10 +149,10 @@ class CalendarManager:
             from google.oauth2.credentials import Credentials
             from google_auth_oauthlib.flow import InstalledAppFlow
             from googleapiclient.discovery import build
-        except ImportError:
+        except ImportError as e:
             raise RuntimeError(
                 "Chýbajú Google knižnice. Spustite:\n"
-                "pip install google-api-python-client google-auth-oauthlib")
+                "pip install google-api-python-client google-auth-oauthlib") from e
 
         token = self.k.get("google_token", "token.json")
         creds_file = self.k.get("google_credentials", "credentials.json")

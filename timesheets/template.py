@@ -68,8 +68,12 @@ def skaluj_y(hodnota_px: float, vyska_obrazka: int) -> int:
 
 def skalovana_sablona(sirka_obrazka: int, vyska_obrazka: int) -> dict:
     """Vráti všetky súradnice šablóny prepočítané na skutočnú veľkosť obrázka."""
-    sx = lambda v: skaluj_x(v, sirka_obrazka)
-    sy = lambda v: skaluj_y(v, vyska_obrazka)
+    def sx(v):
+        return skaluj_x(v, sirka_obrazka)
+
+    def sy(v):
+        return skaluj_y(v, vyska_obrazka)
+
     return {
         "meno_box": (sx(MENO_BOX[0]), sy(MENO_BOX[1]), sx(MENO_BOX[2]), sy(MENO_BOX[3])),
         "mesiac_rok_box": (

@@ -1248,7 +1248,7 @@ class ExcelManager:
         except OSError as e:
             raise ValueError(
                 f"Kopírovanie PDF do archívnych priečinkov zlyhalo: {e}. "
-                f"Skontrolujte prístupové práva a voľné miesto na disku.")
+                f"Skontrolujte prístupové práva a voľné miesto na disku.") from e
 
         # Obe kópie sa už podarilo vytvoriť  odstránenie pôvodného súboru
         # sa neponechá zlyhať celé schválenie (napr. pri prechodnom
@@ -1305,7 +1305,7 @@ class ExcelManager:
         except OSError as e:
             raise ValueError(
                 f"Kopírovanie PDF do priecinok_faktury zlyhalo: {e}. "
-                f"Skontrolujte prístupové práva a voľné miesto na disku.")
+                f"Skontrolujte prístupové práva a voľné miesto na disku.") from e
 
         # Kópia sa podarila  odstránenie pôvodného súboru sa nesmie
         # nechať zlyhať celé schválenie (napr. pri prechodnom zamknutí
