@@ -108,7 +108,7 @@ def labels_from_payments(payments: list[dict]) -> tuple[dict, str]:
         return {}, "ambiguous: several different payment codes"
     p = payments[0]
     return {"suma_s_dph": p["amount"], "variabilny_symbol": p["variable_symbol"],
-            "datum_splatnosti": p["due_date"]}, "payment QR"
+            "datum_splatnosti": p["due_date"], "iban": p["iban"]}, "payment QR"
 
 
 def read_payment_codes(pdf: Path) -> list[dict]:
@@ -155,8 +155,9 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     pdfs = sorted(p for p in Path(args.pdfs).rglob("*") if p.suffix.lower() == ".pdf")
     rows, stats = build_labels(pdfs)
+    # iban is not scored; it identifies the supplier when splitting data for training
     columns = ["file", "typ", "cislo_faktury", "suma_s_dph", "variabilny_symbol", "datum_splatnosti",
-               "label_source"]
+               "iban", "label_source"]
     with open(args.out, "w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=columns)
         writer.writeheader()

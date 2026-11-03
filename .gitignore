@@ -20,10 +20,15 @@ token.json
 # --- OCR language data (large binaries, distributed separately) -------------
 tessdata/
 
+# --- Model training: generated data, checkpoints, logs (large, rebuildable) --
+training/data/
+training/runs/
+
 # --- Python ----------------------------------------------------------------
 __pycache__/
 *.py[cod]
 .venv/
+.venv-train/
 venv/
 build/
 dist/

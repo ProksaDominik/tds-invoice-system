@@ -1,0 +1,19 @@
+# Training only - deliberately not part of the app's requirements.txt.
+# Use a separate environment: PyTorch's CUDA libraries clash with PaddlePaddle's.
+#   python -m venv .venv-train
+#   .venv-train\Scripts\python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#   .venv-train\Scripts\python -m pip install -r training\requirements.txt
+# CUDA 12.8+ builds are needed for RTX 50xx (Blackwell) cards.
+torch>=2.7
+transformers>=4.45
+accelerate>=1.0
+seqeval>=1.2
+pdfplumber>=0.11
+Pillow>=10
+numpy
+sentencepiece
+protobuf
+# results notebook (notebooks/results.ipynb)
+ipykernel
+matplotlib
+pandas

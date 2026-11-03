@@ -81,7 +81,7 @@ class TestCombiningSources:
 
     def test_repeated_identical_code_is_fine(self):
         labels, note = qr.labels_from_payments([self.payment(), self.payment()])
-        assert labels["suma_s_dph"] == "10.00" and note == "payment QR"
+        assert labels["suma_s_dph"] == "10.00" and note == "payment QR" and "iban" in labels
 
     def test_two_different_codes_give_no_labels(self):
         labels, note = qr.labels_from_payments([self.payment(), self.payment(amount="99.00")])
