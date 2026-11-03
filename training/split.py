@@ -9,8 +9,13 @@ grouped by counterparty before splitting:
 - issued invoices (always the same supplier, TDS): the customer's IČO or name;
 - otherwise the document stands alone.
 
-Groups go to a set by a stable hash, so the split never changes between runs.
-The extractor's output is used only to *group* documents, never as a label.
+Groups are taken in a stable pseudo-random order (a hash of the group key) and
+fill the test and validation sets up to their share of *documents*; the rest is
+training. Hashing each group straight to a set left the test set at 13 %
+because a few large customers landed in training. A group holding more than
+5 % of all documents always goes to training, so no single supplier dominates
+the test set. The split never changes between runs. The extractor's output is
+used only to *group* documents, never as a label.
 
     python -m training.split --labels eval_data/labels_qr.csv \
         --predictions eval_results/<run>/per_document.csv --out training/data/split.csv
@@ -25,7 +30,8 @@ import hashlib
 import re
 from pathlib import Path
 
-SHARES = (("train", 0.7), ("val", 0.1), ("test", 0.2))
+SHARES = {"test": 0.2, "val": 0.1}  # the rest is train
+MAX_HELD_OUT_GROUP = 0.05  # larger groups always go to train
 
 
 def group_key(file: str, label: dict, prediction: dict) -> str:
@@ -42,15 +48,20 @@ def group_key(file: str, label: dict, prediction: dict) -> str:
     return "name:" + name if name else "file:" + file
 
 
-def assign(key: str) -> str:
-    """Stable set for a group: the first 8 hex digits of its SHA-256 as a fraction."""
-    x = int(hashlib.sha256(key.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
-    cumulative = 0.0
-    for name, share in SHARES:
-        cumulative += share
-        if x < cumulative:
-            return name
-    return SHARES[-1][0]
+def assign(group_sizes: dict[str, int]) -> dict[str, str]:
+    """Group key -> 'train' | 'val' | 'test', filling held-out sets to their document shares."""
+    total = sum(group_sizes.values())
+    filled = dict.fromkeys(SHARES, 0)
+    out = {}
+    for key in sorted(group_sizes, key=lambda k: hashlib.sha256(k.encode()).hexdigest()):
+        size = group_sizes[key]
+        target = next((name for name, share in SHARES.items() if filled[name] < share * total), None)
+        if target is None or size > MAX_HELD_OUT_GROUP * total:
+            out[key] = "train"
+        else:
+            out[key] = target
+            filled[target] += size
+    return out
 
 
 def _read(path: str) -> dict[str, dict]:
@@ -59,11 +70,9 @@ def _read(path: str) -> dict[str, dict]:
 
 
 def build(files: list[str], labels: dict[str, dict], predictions: dict[str, dict]) -> list[dict]:
-    rows = []
-    for f in sorted(files):
-        key = group_key(f, labels.get(f, {}), predictions.get(f, {}))
-        rows.append({"file": f, "group": key, "split": assign(key), "typ": labels.get(f, {}).get("typ", "")})
-    return rows
+    keys = {f: group_key(f, labels.get(f, {}), predictions.get(f, {})) for f in sorted(files)}
+    sets = assign(collections.Counter(keys.values()))
+    return [{"file": f, "group": k, "split": sets[k], "typ": labels.get(f, {}).get("typ", "")} for f, k in keys.items()]
 
 
 def main(argv=None) -> int:

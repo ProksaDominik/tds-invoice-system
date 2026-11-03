@@ -58,10 +58,17 @@ class TestSupplierSplit:
         assert split.group_key("a.pdf", label, {"partner_nazov [Regex only]": "Firma, s.r.o."}) == "name:firma s r o"
         assert split.group_key("a.pdf", label, {}) == "file:a.pdf"
 
-    def test_assignment_is_stable_and_roughly_proportional(self):
-        sets = [split.assign(f"group-{i}") for i in range(5000)]
-        assert sets == [split.assign(f"group-{i}") for i in range(5000)]
-        assert 0.65 < sets.count("train") / 5000 < 0.75 and 0.17 < sets.count("test") / 5000 < 0.23
+    def test_held_out_sets_get_their_share_of_documents(self):
+        sizes = {f"group-{i}": 1 + i % 9 for i in range(300)}  # groups of 1-9 documents
+        sets = split.assign(sizes)
+        assert sets == split.assign(dict(reversed(sizes.items())))  # stable, independent of input order
+        docs = {s: sum(n for g, n in sizes.items() if sets[g] == s) for s in ("train", "val", "test")}
+        total = sum(sizes.values())
+        assert 0.19 < docs["test"] / total < 0.23 and 0.09 < docs["val"] / total < 0.13
+
+    def test_a_dominant_supplier_stays_in_training(self):
+        sets = split.assign({"big": 60, **{f"g{i}": 2 for i in range(200)}})
+        assert sets["big"] == "train"
 
     def test_one_supplier_never_spans_two_sets(self):
         labels = {f"{i}.pdf": {"typ": "Prijatá", "iban": f"SK{i % 7}"} for i in range(40)}
