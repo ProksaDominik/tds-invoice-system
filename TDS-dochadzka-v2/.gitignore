@@ -1,0 +1,25 @@
+# API keys -- never commit
+azure_di_key.txt
+gemini_api_key.txt
+*_key.txt
+*_kluc.txt
+
+# Employee personal data (timesheets, payroll) -- never commit
+data/
+vykazy/
+vykazy_spracovane/
+mzdy_cache.json
+*.pdf
+*.xlsx
+
+# OCR language data (large binaries, redistributable separately)
+tessdata/
+
+# Caches / logs / build output
+__pycache__/
+*.pyc
+*.log
+build/
+dist/
+.venv/
+venv/
