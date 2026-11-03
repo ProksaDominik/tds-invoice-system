@@ -12,7 +12,13 @@ tessdata/
 
 # Local tooling / caches
 .claude/
+.agents/
 __pycache__/
 *.pyc
 chyba.log
 broad_regression.txt
+
+# Local backup copies of source files -- not part of the project
+*.usb-bak
+*.bak
+*.bak_*

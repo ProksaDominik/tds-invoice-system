@@ -115,7 +115,7 @@ offline).
    (na tomto počítači je už nainštalovaná).
 2. Stiahnite model (raz, cez príkazový riadok):
    ```
-   ollama pull llama3.1:8b
+   ollama pull qwen2.5:3b-instruct
    ```
 3. Ollama beží ako služba na pozadí automaticky po inštalácii/reštarte.
    Aplikácia sa k nej pripája sama – nič ďalšie netreba nastavovať.
@@ -125,43 +125,11 @@ V `config.json` je možné doplnenie ovládať:
 | Kľúč | Význam |
 |---|---|
 | `ollama_zapnute` | `false` = AI doplnenie úplne vypnúť (iba regulárne výrazy) |
-| `ollama_model` | názov modelu, ktorý sa má použiť (predvolené `llama3.1:8b`) |
+| `ollama_model` | názov modelu, ktorý sa má použiť (predvolené `qwen2.5:3b-instruct`) |
 | `ollama_pokusy` | koľkokrát sa má AI skúsiť opýtať na stále chýbajúce polia (predvolené 3  malý model niekedy nájde pole až na 2. či 3. pokus) |
 
 Ak Ollama nebeží alebo model nie je stiahnutý, aplikácia to potichu
 preskočí a použije len to, čo našli regulárne výrazy – nič sa nepokazí.
-
-Aplikácia navyše AI vždy spätne **prekontroluje** už nájdené sumy a
-zákazku (nezávisle od regexu) – ak sa AI a regex nezhodnú, do poľa
-„Poznámka“ sa pridá upozornenie, aby ste si to pri kontrole vedeli
-overiť namiesto toho, aby tichá chyba prešla bez povšimnutia.
-
-### 2.6 Vizuálna AI záchrana (voliteľné, pomalšie)
-
-Text vytiahnutý z PDF je pri niektorých faktúrach potichu poškodený
-(napr. chýbajúca číslica v sume alebo rozbité kódovanie písma priamo
-v PDF) – aj keď faktúra pri zobrazení vyzerá úplne normálne. Ani
-najlepší textový AI model takú chybu neodhalí, keďže dostane na vstup
-už poškodený text. Preto sa pre tú menšinu prijatých faktúr, kde
-niektorá suma stále chýba (alebo kde vyššie uvedená AI kontrola nahlási
-nezhodu), skúsi ešte jedna posledná záchrana: **vizuálny** AI model
-(`qwen2.5vl`), ktorý si sumy prečíta priamo z OBRÁZKA stránky, presne
-tak, ako ich vidí človek.
-
-Toto je výrazne pomalšie ako bežné textové doplnenie (rádovo 2–4 minúty
-na jednu faktúru, podľa výkonu grafickej karty), preto sa nevolá na
-každú faktúru – iba na tú malú časť, kde všetko ostatné zlyhalo.
-
-1. Stiahnite model (raz, cez príkazový riadok):
-   ```
-   ollama pull qwen2.5vl:7b
-   ```
-2. V `config.json`:
-
-| Kľúč | Význam |
-|---|---|
-| `vision_zapnute` | `false` = vizuálnu AI záchranu úplne vypnúť |
-| `vision_model` | názov modelu (predvolené `qwen2.5vl:7b`) |
 
 ---
 
