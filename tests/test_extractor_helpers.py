@@ -135,3 +135,39 @@ class TestOcrRowAssembly:
     def test_without_ocr_engine_page_yields_no_text(self, monkeypatch):
         monkeypatch.setattr(extractor, "_OCR_DOSTUPNE", False)
         assert extractor._ocr_strana(object()) == ""
+
+
+class TestOllamaCall:
+    """Gemma 4 'thinks' by default; the hidden reasoning used up the whole token budget
+    and the answer came back empty, so every call must switch thinking off."""
+
+    class Client:
+        def __init__(self, reject_think=None, other_error=None):
+            self.calls, self.reject_think, self.other_error = [], reject_think, other_error
+
+        def chat(self, **kwargs):
+            self.calls.append(kwargs)
+            if self.other_error:
+                raise self.other_error
+            if self.reject_think and "think" in kwargs:
+                raise self.reject_think
+            return {"message": {"content": "{}"}}
+
+    def test_thinking_is_switched_off(self, monkeypatch):
+        client = self.Client()
+        monkeypatch.setattr(extractor, "_ollama_client", client)
+        extractor._ollama_chat(model="m", messages=[])
+        assert client.calls == [{"think": False, "model": "m", "messages": []}]
+
+    def test_model_without_thinking_support_is_called_without_the_flag(self, monkeypatch):
+        client = self.Client(reject_think=RuntimeError('"m" does not support thinking'))
+        monkeypatch.setattr(extractor, "_ollama_client", client)
+        extractor._ollama_chat(model="m", messages=[])
+        assert [("think" in c) for c in client.calls] == [True, False]
+
+    def test_other_errors_are_not_retried(self, monkeypatch):
+        client = self.Client(other_error=ConnectionError("Ollama is not running"))
+        monkeypatch.setattr(extractor, "_ollama_client", client)
+        with pytest.raises(ConnectionError):
+            extractor._ollama_chat(model="m", messages=[])
+        assert len(client.calls) == 1

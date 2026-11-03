@@ -124,7 +124,7 @@ offline).
    (na tomto počítači je už nainštalovaná).
 2. Stiahnite model (raz, cez príkazový riadok):
    ```
-   ollama pull qwen2.5:3b-instruct
+   ollama pull gemma4:e4b-it-qat
    ```
 3. Ollama beží ako služba na pozadí automaticky po inštalácii/reštarte.
    Aplikácia sa k nej pripája sama – nič ďalšie netreba nastavovať.
@@ -134,7 +134,7 @@ V `config.json` je možné doplnenie ovládať:
 | Kľúč | Význam |
 |---|---|
 | `ollama_zapnute` | `false` = AI doplnenie úplne vypnúť (iba regulárne výrazy) |
-| `ollama_model` | názov modelu, ktorý sa má použiť (predvolené `qwen2.5:3b-instruct`) |
+| `ollama_model` | názov modelu, ktorý sa má použiť (predvolené `gemma4:e4b-it-qat`, model Gemma 4, 6,1 GB) |
 | `ollama_pokusy` | koľkokrát sa má AI skúsiť opýtať na stále chýbajúce polia (vo vzorovom config.json 1; vyššia hodnota pomôže, ak malý model nájde pole až na 2. či 3. pokus, ale spomalí spracovanie) |
 
 Ak Ollama nebeží alebo model nie je stiahnutý, aplikácia to potichu

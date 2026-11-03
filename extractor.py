@@ -1453,6 +1453,23 @@ _OLLAMA_KEEP_ALIVE = "30m"
 # spustí zbytočný ďalší pokus.
 _OLLAMA_NUM_PREDICT = 512
 
+_OLLAMA_PREDVOLENY_MODEL = "gemma4:e4b-it-qat"
+
+
+def _ollama_chat(**parametre):
+    """
+    Volanie Ollama bez „premýšľania“. Gemma 4 inak pred odpoveďou generuje
+    skrytý text úvah, ktorý minie celý strop _OLLAMA_NUM_PREDICT  odpoveď
+    potom príde prázdna a doplnenie ticho nič nenájde. Modely, ktoré
+    premýšľanie nepodporujú a parameter odmietnu, sa zavolajú bez neho.
+    """
+    try:
+        return _ollama_client.chat(think=False, **parametre)
+    except Exception as e:
+        if "think" not in str(e).lower():
+            raise
+        return _ollama_client.chat(**parametre)
+
 
 # Kľúčové slová, ktoré signalizujú relevantný riadok pre AI (obsahujú súm/dátumové
 # hodnoty, ktoré chceme, aby AI videla, aj keď sa nachádzajú v strede dlhého
@@ -1517,7 +1534,7 @@ def _zavolaj_ollama(text: str, polia: list, konfig: dict) -> dict:
         "properties": {p: {"type": "string", "description": _POLIA_PRE_AI[p]} for p in polia},
         "required": polia,
     }
-    model = (konfig or {}).get("ollama_model", "qwen2.5:3b-instruct")
+    model = (konfig or {}).get("ollama_model", _OLLAMA_PREDVOLENY_MODEL)
 
     priklad_text = (
         "IČO: 12345678\nFaktúra č. 2026100\nDátum vystavenia: 01.06.2026\n"
@@ -1535,7 +1552,7 @@ def _zavolaj_ollama(text: str, polia: list, konfig: dict) -> dict:
     if _ollama_client is None:
         return {}
     try:
-        odpoved = _ollama_client.chat(
+        odpoved = _ollama_chat(
             model=model,
             messages=[
                 {
@@ -1584,7 +1601,7 @@ def _zavolaj_ollama(text: str, polia: list, konfig: dict) -> dict:
 
 def zohrej_ai(konfig: dict = None) -> bool:
     """
-    Predzavolá lokálny Ollama model jedným krátkym pingom, aby sa 1.9 GB
+    Predzavolá lokálny Ollama model jedným krátkym pingom, aby sa niekoľko GB
     váh nemuselo zavádzať z disku až pri prvej reálnej faktúre. Bez tohto
     zohriatia platí prvé uploadnutie ceny 30-90 s (na disku závislé)  s
     ním sa tá cena zaplatí raz na začiatku pri štarte aplikácie a všetky
@@ -1596,9 +1613,9 @@ def zohrej_ai(konfig: dict = None) -> bool:
     """
     if not _ai_dostupne(konfig) or _ollama_client is None:
         return False
-    model = (konfig or {}).get("ollama_model", "qwen2.5:3b-instruct")
+    model = (konfig or {}).get("ollama_model", _OLLAMA_PREDVOLENY_MODEL)
     try:
-        _ollama_client.chat(
+        _ollama_chat(
             model=model,
             messages=[{"role": "user", "content": "ping"}],
             options={"temperature": 0, "num_predict": 1},

@@ -69,9 +69,9 @@ flowchart LR
    the text language, because international platforms localise their invoices
    into Slovak.
 5. **LLM fill-in.** Only for *received* invoices, and only for the critical
-   fields the rules left empty, a local model (`qwen2.5:3b-instruct` via
-   Ollama) is asked for the missing values with a JSON-schema-constrained
-   response. Its answers pass the same validation; if they break the
+   fields the rules left empty, a local model (Gemma 4, `gemma4:e4b-it-qat`
+   via Ollama, with thinking switched off) is asked for the missing values
+   with a JSON-schema-constrained response. Its answers pass the same validation; if they break the
    arithmetic, the rule-based values are restored.
 6. **Human in the loop.** Every record lands in a staging workbook first and
    reaches the ledgers only after approval. The staging copy is kept as an
@@ -80,13 +80,17 @@ flowchart LR
 
 ### Design decisions worth knowing
 
-- **Rules first, LLM for the gaps.** On the office CPU one LLM call takes
-  30–60 s, while the rules finish in milliseconds and are deterministic. The
+- **Rules first, LLM for the gaps.** On the office CPU one call to the earlier
+  3B model took 30–60 s, while the rules finish in milliseconds and are deterministic. The
   LLM is skipped entirely when the rules already filled every critical field.
 - **The LLM never overrides the rules.** An earlier version asked the LLM to
-  re-read every invoice and cross-check the regex values. In practice the 3B
-  model occasionally swapped the net amount and the total, and the
+  re-read every invoice and cross-check the regex values. In practice the
+  earlier 3B model occasionally swapped the net amount and the total, and the
   "cross-check" destroyed correct values, so it was removed.
+- **Thinking is switched off.** Gemma 4 reasons before answering by default;
+  the hidden reasoning used up the whole response-token cap, the JSON answer
+  came back empty and the fill-in silently found nothing. Every call now sends
+  `think=false` (models that do not support the flag are called without it).
 - **A vision-model fallback was tried and removed.** Reading amounts from the
   rendered page with a VLM rescued a few invoices with corrupted text layers,
   but was too slow on office hardware to justify.
@@ -103,7 +107,7 @@ person approved in the app:
 
 ```bash
 python -m evaluation --pdfs <archived PDFs> --zaloha <staging workbook>      # accuracy
-python -m evaluation --pdfs <PDFs> --llm qwen2.5:3b-instruct                 # + LLM setup
+python -m evaluation --pdfs <PDFs> --llm gemma4:e4b-it-qat                   # + LLM setup
 python -m evaluation --pdfs <PDFs>                                            # fill rate + speed only
 ```
 
@@ -159,7 +163,7 @@ Optional components — the app skips a step if its component is missing:
 | Component | Setup |
 |---|---|
 | OCR for scans | [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) is in `requirements.txt`; its engine is installed separately: `pip install paddlepaddle` (CPU), or `paddlepaddle-gpu` from the [PaddlePaddle index](https://www.paddlepaddle.org.cn/en/install/quick) for an NVIDIA GPU. Models (~135 MB) download on the first scan. |
-| LLM fill-in | [Ollama](https://ollama.com), then `ollama pull qwen2.5:3b-instruct` |
+| LLM fill-in | [Ollama](https://ollama.com), then `ollama pull gemma4:e4b-it-qat` (6.1 GB) |
 | Calendar reminders | Google OAuth `credentials.json` next to `app.py` (see the user guide, §2.4) |
 
 Development:
