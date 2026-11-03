@@ -107,12 +107,12 @@ python -m evaluation --pdfs <PDFs> --llm qwen2.5:3b-instruct                 # +
 python -m evaluation --pdfs <PDFs>                                            # fill rate + speed only
 ```
 
-It reports per-field accuracy and precision, the share of invoices with every
-field correct, and time per stage (text layer, OCR, parsing, LLM). Only fields
-a reviewer can actually edit in the app are scored; fields that are stored but
-never shown for review would just compare the extractor with itself. The
-report contains aggregates only; per-invoice output stays in the gitignored
-`eval_results/` folder.
+It reports per-field accuracy (= recall), precision and F1, the same pooled
+over all fields, the share of invoices with every field correct, and time per
+stage (text layer, OCR, parsing, LLM). Only fields a reviewer can actually edit
+in the app are scored; fields that are stored but never shown for review would
+just compare the extractor with itself. The report contains aggregates only;
+per-invoice output stays in the gitignored `eval_results/` folder.
 
 Results on approved production invoices will be published in this section
 once the baseline run is complete.

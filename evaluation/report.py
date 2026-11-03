@@ -16,14 +16,19 @@ def _secs(summary: dict | None, key: str) -> str:
 
 def accuracy_table(scores: dict[str, FieldScore], perfect: int, scored_docs: int) -> list[str]:
     lines = [
-        "| Field | Invoices with a reviewed value | Correct | Wrong | Missing | Accuracy | Precision |",
-        "|---|---:|---:|---:|---:|---:|---:|",
+        "| Field | Invoices with a reviewed value | Correct | Wrong | Missing "
+        "| Accuracy (= recall) | Precision | F1 |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
-    for field, s in scores.items():
-        if not s.total:
-            continue
-        lines.append(f"| {FIELD_LABELS[field]} | {s.total} | {s.correct} | {s.wrong} | {s.missing} "
-                     f"| **{_pct(s.accuracy)}** | {_pct(s.precision)} |")
+
+    def row(label: str, s: FieldScore) -> str:
+        return (f"| {label} | {s.total} | {s.correct} | {s.wrong} | {s.missing} "
+                f"| **{_pct(s.accuracy)}** | {_pct(s.precision)} | {_pct(s.f1)} |")
+
+    scored = [(field, s) for field, s in scores.items() if s.total]
+    lines += [row(FIELD_LABELS[field], s) for field, s in scored]
+    if len(scored) > 1:
+        lines.append(row("**All fields**", sum((s for _, s in scored), FieldScore())))
     if scored_docs:
         lines += ["", f"Invoices with **every** scored field correct: "
                       f"**{_pct(perfect / scored_docs)}** ({perfect} of {scored_docs})."]
@@ -72,7 +77,9 @@ def render(summary: dict) -> str:
 
     out += ["## Speed per document", ""]
     out += timing_table(summary["timings"])
-    out += ["", "Accuracy counts only invoices whose ground truth has a value for the field. "
-                "*Precision* is the share of filled-in values that are correct; a missing value "
-                "goes to human review, while a wrong one has to be caught by the reviewer."]
+    out += ["", "Accuracy (= recall) counts only invoices whose ground truth has a value for the field; "
+                "a wrong value and an empty one both count as misses. *Precision* is the share of "
+                "filled-in values that are correct: a missing value goes to human review, while a "
+                "wrong one has to be caught by the reviewer. *F1* is the harmonic mean of the two. "
+                "*All fields* pools every scored field of every invoice."]
     return "\n".join(out) + "\n"

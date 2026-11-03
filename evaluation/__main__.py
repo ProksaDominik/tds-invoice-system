@@ -3,8 +3,8 @@
     python -m evaluation --pdfs DIR [--zaloha FILE | --invoice-desk DB | --labels CSV]
                          [--llm MODEL] [--limit N] [--out DIR]
 
-With ground truth it reports per-field accuracy and precision; without it,
-how often each field gets filled. Speed is always measured. Outputs (in --out,
+With ground truth it reports per-field accuracy (= recall), precision and F1;
+without it, how often each field gets filled. Speed is always measured. Outputs (in --out,
 default eval_results/, which is gitignored):
 
   report.md          aggregate results only - safe to publish

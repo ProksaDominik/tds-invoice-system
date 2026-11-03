@@ -142,6 +142,21 @@ class FieldScore:
         filled = self.correct + self.wrong
         return self.correct / filled if filled else None
 
+    @property
+    def recall(self) -> float | None:
+        """Same as accuracy: a wrong value counts as a miss, an empty one too."""
+        return self.accuracy
+
+    @property
+    def f1(self) -> float | None:
+        p, r = self.precision, self.recall
+        if p is None or r is None:
+            return None
+        return 2 * p * r / (p + r) if p + r else 0.0
+
+    def __add__(self, other: "FieldScore") -> "FieldScore":
+        return FieldScore(self.correct + other.correct, self.wrong + other.wrong, self.missing + other.missing)
+
 
 def compare(field: str, predicted, gold) -> str | None:
     """'correct' | 'wrong' | 'missing', or None when the ground truth is empty."""

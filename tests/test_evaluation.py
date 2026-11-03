@@ -12,7 +12,7 @@ import extractor
 import samples
 from evaluation import __main__ as cli
 from evaluation import ground_truth
-from evaluation.metrics import compare, from_extractor, normalize, score
+from evaluation.metrics import FieldScore, compare, from_extractor, normalize, score
 from excel_manager import STAV_CAKA, STAV_SCHVALENE, STLPCE_ZALOHA
 
 
@@ -63,6 +63,29 @@ class TestCompareAndScore:
         assert (scores["suma_s_dph"].correct, scores["suma_s_dph"].wrong) == (1, 1)
         assert scores["suma_s_dph"].precision == 0.5
         assert (perfect, scored) == (1, 2)
+
+    def test_recall_and_f1(self):
+        s = FieldScore(correct=6, wrong=2, missing=2)
+        assert s.recall == s.accuracy == 0.6
+        assert s.precision == 0.75
+        assert s.f1 == pytest.approx(2 * 0.75 * 0.6 / 1.35)
+
+    def test_f1_is_zero_when_nothing_is_right_and_none_without_values(self):
+        assert FieldScore(wrong=3).f1 == 0.0
+        assert FieldScore(missing=2).f1 is None  # nothing filled: precision undefined
+        assert FieldScore().f1 is None
+
+    def test_scores_pool_across_fields(self):
+        pooled = FieldScore(1, 2, 3) + FieldScore(4, 0, 1)
+        assert (pooled.correct, pooled.wrong, pooled.missing) == (5, 2, 4)
+
+    def test_report_has_f1_and_pooled_row(self):
+        from evaluation.report import accuracy_table
+
+        lines = accuracy_table({"dph": FieldScore(3, 1, 0), "suma_s_dph": FieldScore(2, 0, 2)}, 1, 4)
+        assert "F1" in lines[0]
+        pooled = next(line for line in lines if line.startswith("| **All fields**"))
+        assert "| 8 | 5 | 1 | 2 |" in pooled
 
     def test_counterparty_is_supplier_for_received_and_customer_for_issued(self):
         received = {"typ": "Prijatá", "dodavatel": "A s.r.o.", "odberatel": "TDS s.r.o.",
