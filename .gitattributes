@@ -1,0 +1,9 @@
+# Normalise text files to LF in the repository.
+* text=auto
+
+# Windows launchers must keep CRLF line endings to run reliably.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+*.png binary
+*.ico binary
