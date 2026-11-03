@@ -1,24 +1,61 @@
-# Real business/customer data -- never commit
+# --- Business data: never commit -------------------------------------------
+# Real invoices, generated ledgers and evaluation inputs stay on the machine.
 data/
 invoices/
+eval_data/
 *.pdf
+*.xlsx
 
-# Google API credentials -- never commit
+# Machine-specific configuration (network paths, company settings).
+# Copy config.example.json -> config.json and edit locally.
+config.json
+
+# --- Credentials: never commit ---------------------------------------------
 credentials.json
 token.json
+*_key.txt
+*_kluc.txt
+.env
 
-# OCR language data (large binary files, redistributable separately)
+# --- OCR language data (large binaries, distributed separately) -------------
 tessdata/
 
-# Local tooling / caches
-.claude/
-.agents/
+# --- Python ----------------------------------------------------------------
 __pycache__/
-*.pyc
-chyba.log
-broad_regression.txt
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Local backup copies of source files -- not part of the project
+# --- Logs and local scratch ------------------------------------------------
+*.log
+broad_regression.txt
+mzdy_cache.json
+eval_results/
+
+# --- Local backups ---------------------------------------------------------
 *.usb-bak
 *.bak
 *.bak_*
+
+# --- Local AI-assistant tooling (not part of the project) ------------------
+CLAUDE.md
+AGENTS.md
+.claude/
+.agents/
+.claude-flow/
+.swarm/
+.hive-mind/
+.mcp.json
+
+# --- Editors / OS ----------------------------------------------------------
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
