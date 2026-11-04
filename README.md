@@ -146,15 +146,17 @@ once the baseline run is complete.
 
 ## Tests
 
-`pytest` runs 142 tests in about two seconds — no PDFs, OCR or LLM needed. The
+`pytest` runs 163 tests in about two seconds — no PDFs, OCR or LLM needed. The
 PDF reader is stubbed and the pipeline runs on synthetic invoice texts
 (received, issued, foreign reverse-charge). The tests cover the parsing rules,
 the arithmetic validation, the LLM gate (never called without config or for
 issued invoices; only asked for missing critical fields; a fill-in that breaks
 net + VAT = total is discarded), regrouping OCR text boxes into lines, the
 Ollama call (thinking off), the ledger helpers, the timesheet payroll writer,
-the evaluation metrics and the payment-QR decoder that produces ground truth. CI runs ruff and the tests on Windows and
-Linux, Python 3.10 and 3.12.
+the evaluation metrics, re-scoring, the payment-QR decoder that produces
+ground truth, and the training data pipeline (charset and CTC decoding,
+synthetic lines, word labels, the supplier split). CI runs ruff and the tests
+on Windows and Linux, Python 3.10 and 3.12.
 
 **Known limitations** (each one is a test or an evaluation case):
 
