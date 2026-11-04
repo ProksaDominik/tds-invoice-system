@@ -112,3 +112,23 @@ class TestWordLabels:
 
     def test_boxes_scaled_to_the_layout_grid(self):
         assert self.L.normalise_boxes([["x", 0, 0, 297.5, 842]], 595, 842) == [[0, 0, 500, 1000]]
+
+
+class TestRealLines:
+    class Page:
+        def __init__(self, lines):
+            self.lines = lines
+
+        def extract_text_lines(self, return_chars):
+            return self.lines
+
+    @staticmethod
+    def line(text, font):
+        return {"text": text, "x0": 0, "top": 0, "x1": 100, "bottom": 10,
+                "chars": [{"text": c, "fontname": font} for c in text]}
+
+    def test_barcode_fonts_are_not_text(self):
+        from training.ocr.real_lines import page_lines
+
+        page = self.Page([self.line("Spolu 120,00", "ABCDEF+Arial"), self.line("u I 1 i G f", "NKVQXS+AZTWNormal")])
+        assert [text for text, _ in page_lines(page)] == ["Spolu 120,00"]

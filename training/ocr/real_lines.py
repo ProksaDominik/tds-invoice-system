@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import re
 from pathlib import Path
 
 from .charset import in_charset, normalize
@@ -22,12 +23,17 @@ from .charset import in_charset, normalize
 DPI = 216  # same resolution the app renders scanned pages at
 MAX_CHARS = 64
 MIN_TEXT_PAGE_CHARS = 20  # the app's own threshold for "this page has a text layer"
+# Barcodes drawn with a font have a text layer of random letters ("u I 1 i G f"). One test invoice's
+# Aztec code (font "AZTWNormal") made up 324 such "lines" and 73 % of all test errors at first.
+BARCODE_FONT = re.compile(r"(?i)aztec|aztw|barcode|datamatrix|pdf417|code ?128|code ?39|idautomation|ean ?13|upc")
 
 
 def page_lines(page) -> list[tuple[str, tuple[float, float, float, float]]]:
     """(text, bbox in PDF points) for every usable text line on a page."""
     out = []
-    for line in page.extract_text_lines(return_chars=False):
+    for line in page.extract_text_lines(return_chars=True):
+        if any(BARCODE_FONT.search(c.get("fontname", "").split("+")[-1]) for c in line["chars"]):
+            continue
         text = normalize(line["text"])
         if 1 <= len(text) <= MAX_CHARS and in_charset(text):
             out.append((text, (line["x0"], line["top"], line["x1"], line["bottom"])))

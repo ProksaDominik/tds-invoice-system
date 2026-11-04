@@ -22,7 +22,7 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
-from .charset import BLANK, cer, decode_greedy, encode, in_charset
+from .charset import BLANK, decode_greedy, encode, in_charset, line_metrics
 from .model import CRNN, HEIGHT, output_lengths
 from .synth import TextSampler, available_fonts, degrade, render_line
 
@@ -109,8 +109,7 @@ def evaluate(model: CRNN, loader: DataLoader, device: str) -> dict:
             hyps.append(decode_greedy(row[: int(n)]))
             refs.append(text)
     model.train()
-    return {"cer": cer(refs, hyps), "line_accuracy": sum(r == h for r, h in zip(refs, hyps)) / max(1, len(refs)),
-            "lines": len(refs), "examples": [(r, h) for r, h in zip(refs, hyps) if r != h][:5]}
+    return {**line_metrics(refs, hyps), "examples": [(r, h) for r, h in zip(refs, hyps) if r != h][:5]}
 
 
 def pick_device(preference: str = "auto") -> str:

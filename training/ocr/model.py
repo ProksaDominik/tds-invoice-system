@@ -26,14 +26,18 @@ class CRNN(nn.Module):
             *_conv(512, 512, kernel=(3, 1), padding=0),  # 1 x W/4
             nn.Dropout2d(0.1),
         )
-        self.rnn = nn.LSTM(512, hidden, num_layers=2, bidirectional=True, batch_first=True, dropout=0.2)
+        # No dropout inside the LSTM: cuDNN's RNN dropout state made the process abort at exit on
+        # Windows (0xC0000409) after every training run. Dropout on the LSTM output instead; it has
+        # no weights, so checkpoints trained with the old layout load unchanged.
+        self.rnn = nn.LSTM(512, hidden, num_layers=2, bidirectional=True, batch_first=True)
+        self.dropout = nn.Dropout(0.2)
         self.head = nn.Linear(2 * hidden, num_classes)
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         """images: (batch, 1, 48, width), ink ~1 and paper ~0 -> logits (batch, width // 4, classes)."""
         features = self.cnn(images).squeeze(2).transpose(1, 2)
         features, _ = self.rnn(features)
-        return self.head(features)
+        return self.head(self.dropout(features))
 
 
 def output_lengths(widths: torch.Tensor) -> torch.Tensor:

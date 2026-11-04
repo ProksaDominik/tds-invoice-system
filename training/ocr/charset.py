@@ -76,3 +76,17 @@ def cer(references: list[str], hypotheses: list[str]) -> float:
     chars = sum(len(r) for r in references)
     edits = sum(edit_distance(r, h) for r, h in zip(references, hypotheses, strict=True))
     return edits / chars if chars else 0.0
+
+
+def line_metrics(references: list[str], hypotheses: list[str]) -> dict:
+    """CER and exact-line share, also with spaces ignored: text layers and other OCR engines
+    space words differently, which would otherwise count as misreadings."""
+    def squeeze(xs: list[str]) -> list[str]:
+        return [x.replace(" ", "") for x in xs]
+
+    def exact(a: list[str], b: list[str]) -> float:
+        return sum(x == y for x, y in zip(a, b, strict=True)) / max(1, len(a))
+
+    return {"cer": cer(references, hypotheses), "line_accuracy": exact(references, hypotheses),
+            "cer_no_spaces": cer(squeeze(references), squeeze(hypotheses)),
+            "line_accuracy_no_spaces": exact(squeeze(references), squeeze(hypotheses)), "lines": len(references)}
