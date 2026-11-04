@@ -301,6 +301,7 @@ ruff check .
 | Key | Meaning |
 |---|---|
 | `ico_firmy`, `varianty_nazvu` | Company ID and name variants — used to tell received from issued invoices |
+| `ic_dph_firmy` | Own VAT number — never reported as the counterparty's (OCR misreads of it included) |
 | `subor_prijate`, `subor_vystavene`, `subor_zaloha` | Ledger workbooks and the staging workbook |
 | `priecinok_invoices` | Inbox folder with scanned invoices |
 | `priecinok_faktury`, `priecinok_faktury_pre_skladnikov` | Archive for approved PDFs and the warehouse copy |

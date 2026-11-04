@@ -956,6 +956,52 @@ def _najdi_ic_dph_krajiny(text: str) -> set:
     return vysledky
 
 
+def _platne_ic_dph(kandidat: str) -> bool:
+    """Slovenské IČ DPH (SK + 10 číslic) je deliteľné 11  OCR preklep v čísle
+    túto kontrolu takmer vždy pokazí. Ostatné krajiny sa overujú len formátom."""
+    if kandidat.startswith("SK"):
+        cislice = kandidat[2:]
+        return len(cislice) == 10 and cislice.isdigit() and int(cislice) % 11 == 0
+    return True
+
+
+def _lisi_sa_najviac_znakom(a: str, b: str) -> bool:
+    """Zhoda s najviac jedným zameneným, chýbajúcim alebo navyše znakom."""
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    if abs(len(a) - len(b)) != 1:
+        return False
+    kratsi, dlhsi = sorted((a, b), key=len)
+    return any(dlhsi[:i] + dlhsi[i + 1:] == kratsi for i in range(len(dlhsi)))
+
+
+def najdi_ic_dph_partnera(text: str, ico_partnera: str = "", ic_dph_firmy: str = "") -> str:
+    """
+    IČ DPH (VAT ID) protistrany: prvé platné VAT číslo v texte, ktoré nie je
+    vlastné  ani jeho OCR preklep (na skenoch sa vlastné SK2022838653 číta
+    aj ako SK2022878653). Pri českej firme je DIČ = „CZ" + IČO, takže číslo
+    zhodné s IČO protistrany má prednosť. Bankové údaje sa preskakujú.
+    """
+    vlastne = re.sub(r"\s", "", ic_dph_firmy or "").upper()
+    upper = text.upper()
+    kandidati = []
+    for m in _IC_DPH_RE.finditer(upper):
+        kontext = upper[max(0, m.start() - 20):m.start()]
+        if any(slovo in kontext for slovo in ("IBAN", "SWIFT", "BIC", "BANK", "ACCOUNT", "ACCT", "ÚČET", "UCET")):
+            continue
+        kandidat = re.sub(r"\s", "", m.group(0))
+        if kandidat in kandidati or not _platne_ic_dph(kandidat):
+            continue
+        if vlastne and _lisi_sa_najviac_znakom(kandidat, vlastne):
+            continue
+        kandidati.append(kandidat)
+    if ico_partnera:
+        for kandidat in kandidati:
+            if kandidat[2:] == ico_partnera:
+                return kandidat
+    return kandidati[0] if kandidati else ""
+
+
 def urci_jazyk(text: str) -> str:
     """
     Rozhodne, či je faktúra od tuzemskej ('SK') alebo zahraničnej ('iny')
@@ -1810,12 +1856,15 @@ def _najdi_dva_datumy_zoradene(text: str) -> dict:
 
 # ---------------------------------------------------------------- hlavná funkcia
 
-def extrahuj_fakturu(cesta_pdf: str, ico_firmy: str, varianty_nazvu: list, konfig: dict = None) -> dict:
+def extrahuj_fakturu(cesta_pdf: str, ico_firmy: str, varianty_nazvu: list, konfig: dict = None,
+                    ic_dph_firmy: str = "") -> dict:
     """
     Extrahuje všetky údaje z faktúry a vráti slovník (kľúče v slovenčine).
     Pre PRIJATÉ faktúry (rôzne dodávateľské šablóny bez spoločného vzoru)
     sa polia, ktoré sa nepodarilo nájsť regulárnymi výrazmi, doplnia cez
     lokálny Ollama model  ak je 'konfig' zadaný a Ollama je dostupná.
+    Vlastné IČ DPH (ic_dph_firmy, inak z konfigurácie) sa nikdy nevráti ako
+    IČ DPH protistrany.
     """
     text = nacitaj_text(cesta_pdf)
     plain = _bez_diakritiky(text)
@@ -1905,6 +1954,9 @@ def extrahuj_fakturu(cesta_pdf: str, ico_firmy: str, varianty_nazvu: list, konfi
 
     vsetky_ico = _najdi_vsetky_ico(text)
     typ, ico_dod, ico_odb = urci_typ_a_ico(text, ico_firmy, varianty_nazvu, vsetky_ico)
+    vlastne_ic_dph = ic_dph_firmy or (konfig or {}).get("ic_dph_firmy", "")
+    ic_dph_partnera = najdi_ic_dph_partnera(
+        text, ico_odb if typ == "Vystavená" else ico_dod, vlastne_ic_dph)
     strany = _najdi_nazvy_stran(text, varianty_nazvu)
 
     if not cislo:
@@ -2173,8 +2225,10 @@ def extrahuj_fakturu(cesta_pdf: str, ico_firmy: str, varianty_nazvu: list, konfi
         "jazyk": jazyk,
         "dodavatel": strany["dodavatel"],
         "ico_dodavatela": ico_dod,
+        "ic_dph_dodavatela": vlastne_ic_dph if typ == "Vystavená" else ic_dph_partnera,
         "odberatel": strany["odberatel"],
         "ico_odberatela": ico_odb,
+        "ic_dph_odberatela": ic_dph_partnera if typ == "Vystavená" else vlastne_ic_dph,
         "datum_vystavenia": datum_vystavenia,
         "datum_dodania": datum_dodania,
         "datum_splatnosti": datum_splatnosti,

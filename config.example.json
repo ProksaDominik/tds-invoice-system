@@ -1,31 +1,39 @@
 {
-    "nazov_firmy": "TDS s.r.o.",
-    "ico_firmy": "12345678",
-    "varianty_nazvu": ["TDS s.r.o.", "TDS s. r. o.", "TDS sro", "TDS, s.r.o."],
-
-    "priecinok_dat": "data",
-
-    "subor_prijate":   "data/faktury_prijate.xlsx",
-    "subor_vystavene": "data/faktury_vystavene.xlsx",
-    "subor_zaloha":    "data/zaloha.xlsx",
-    "subor_pre_skladnikov": null,
-
-    "priecinok_invoices":               "invoices",
-    "priecinok_faktury_pre_skladnikov": "data/sklad",
-    "priecinok_faktury":                "data/archiv",
-
-    "kalendar_zapnuty": false,
-    "kalendar_len_vystavene": true,
-    "hromadny_termin": "30.06.",
-    "hromadne_pripomienky_dni": [20, 10],
-
-    "archivacia_tuzemske_od":   {"rok": 2026, "posledne_cislo": 0},
-    "archivacia_zahranicne_od": {"rok": 2026, "posledne_cislo": 0},
-
-    "google_credentials": "credentials.json",
-    "google_token": "token.json",
-
-    "ollama_zapnute": true,
-    "ollama_model": "gemma4:e4b-it-qat",
-    "ollama_pokusy": 1
+  "nazov_firmy": "TDS s.r.o.",
+  "ico_firmy": "12345678",
+  "ic_dph_firmy": "SK2020000000",
+  "varianty_nazvu": [
+    "TDS s.r.o.",
+    "TDS s. r. o.",
+    "TDS sro",
+    "TDS, s.r.o."
+  ],
+  "priecinok_dat": "data",
+  "subor_prijate": "data/faktury_prijate.xlsx",
+  "subor_vystavene": "data/faktury_vystavene.xlsx",
+  "subor_zaloha": "data/zaloha.xlsx",
+  "subor_pre_skladnikov": null,
+  "priecinok_invoices": "invoices",
+  "priecinok_faktury_pre_skladnikov": "data/sklad",
+  "priecinok_faktury": "data/archiv",
+  "kalendar_zapnuty": false,
+  "kalendar_len_vystavene": true,
+  "hromadny_termin": "30.06.",
+  "hromadne_pripomienky_dni": [
+    20,
+    10
+  ],
+  "archivacia_tuzemske_od": {
+    "rok": 2026,
+    "posledne_cislo": 0
+  },
+  "archivacia_zahranicne_od": {
+    "rok": 2026,
+    "posledne_cislo": 0
+  },
+  "google_credentials": "credentials.json",
+  "google_token": "token.json",
+  "ollama_zapnute": true,
+  "ollama_model": "gemma4:e4b-it-qat",
+  "ollama_pokusy": 1
 }

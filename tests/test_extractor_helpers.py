@@ -171,3 +171,22 @@ class TestOllamaCall:
         with pytest.raises(ConnectionError):
             extractor._ollama_chat(model="m", messages=[])
         assert len(client.calls) == 1
+
+
+class TestPartnerVatNumber:
+    OWN = "SK2022838653"
+
+    def test_own_vat_number_and_its_ocr_misreads_are_skipped(self):
+        text = ("Dodávateľ: Alfa s.r.o.  IČ DPH: SK2020000015\n"
+                "Odberateľ: TDS s.r.o.  IČ DPH: SK2022838653  (OCR copy: SK2022878653)")
+        assert extractor.najdi_ic_dph_partnera(text, "", self.OWN) == "SK2020000015"
+
+    def test_slovak_check_digit_rejects_misreads(self):
+        assert extractor.najdi_ic_dph_partnera("IČ DPH: SK2020000021", "", self.OWN) == ""
+
+    def test_czech_vat_number_matching_the_partner_ico_wins(self):
+        text = "IČ DPH: SK2020000015   DIČ: CZ27082440"
+        assert extractor.najdi_ic_dph_partnera(text, "27082440", self.OWN) == "CZ27082440"
+
+    def test_bank_details_are_not_vat_numbers(self):
+        assert extractor.najdi_ic_dph_partnera("IBAN: SK2020000015", "", self.OWN) == ""
