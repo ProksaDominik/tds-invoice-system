@@ -1,22 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-template.py  Rozloženie formulára "PRACOVNÝ VÝKAZ" (TDS s.r.o.).
+template.py - layout of the "PRACOVNÝ VÝKAZ" (timesheet) form of TDS s.r.o.
 
-Fyzický formulár je vždy rovnaký (jeden pevný firemný tlačový vzor),
-naskenovaný na výšku (A4 portrait), ale obsah je otočený o 90°  po
-otočení do čitateľnej polohy (na šírku) má vzor konštantné rozloženie:
+The physical form is always the same (one fixed company print template), scanned in portrait (A4),
+but the content is rotated by 90°. Once rotated to a readable (landscape) position the layout is
+constant:
 
-    - hlavička: Meno pracovníka / Mesiac / Rok
-    - 9 riadkov "zákaziek" (zák.č. + 31 dní + spolu hodín/sadzba/EUR)
-    - riadok "Soboty, nedele vyškrtať" + "spolu za mesiac"
+    - header: employee name / month / year
+    - 9 "job" rows (job no. + 31 days + total hours/rate/EUR)
+    - the row "Soboty, nedele vyškrtať" (cross out weekends) + "spolu za mesiac" (monthly total)
 
-Súradnice nižšie sú kalibrované na referenčnú vzorku (300 DPI,
-3509x2480 px po otočení) a uložené ako ZLOMKY šírky/výšky stránky, takže
-fungujú aj pri inom rozlíšení skenu. extractor.py navyše po zoskenovaní
-overí (over_stlpce_dni), či sa v obrázku na očakávaných miestach naozaj
-nachádza cca 31 rovnomerne rozmiestnených stĺpcových čiar  ak nie
-(veľmi naklonený/posunutý sken), výkaz sa v appke označí na dôkladnú
-ručnú kontrolu.
+The coordinates below are calibrated on a reference sample (300 DPI, 3509x2480 px after rotation)
+and stored as FRACTIONS of the page width and height, so they also work at other scan resolutions.
+After scanning, extractor.py also checks (over_stlpce_dni) that about 31 evenly spaced column lines
+really are where they are expected; if not (a badly tilted or shifted scan), the timesheet is
+flagged in the app for a careful manual check.
 """
 
 REF_W = 3509
@@ -25,35 +23,33 @@ REF_H = 2480
 POCET_DNI = 31
 POCET_RIADKOV_ZAKAZIEK = 9
 
-# (x0, y0, x1, y1) v pixeloch referenčnej vzorky
-# MENO_BOX x1 je zámerne oveľa širší než samotný popisok "Meno pracovníka:"
-# (ten končí cca pri x=331) - dlhšie mená bývajú dopísané ďaleko za popisok,
-# až takmer po MESIAC_ROK_BOX (x=1974); reálny sken potvrdil meno spadajúce
-# až po x=833.
+# (x0, y0, x1, y1) in pixels of the reference sample. MENO_BOX x1 is deliberately much wider than
+# the label "Meno pracovníka:" itself (which ends around x=331): longer names are often written far
+# past the label, almost up to MESIAC_ROK_BOX (x=1974); a real scan had a name reaching x=833.
 MENO_BOX = (61, 200, 1930, 286)
 MESIAC_ROK_BOX = (1974, 200, 3349, 286)
 
-# 32 hraníc = 31 stĺpcov (dni 1..31)
+# 32 boundaries = 31 columns (days 1..31)
 DAY_BOUNDS = [
     450, 522, 594, 667, 739, 811, 884, 957, 1029, 1102, 1174, 1247, 1319,
     1392, 1464, 1537, 1609, 1682, 1754, 1827, 1899, 1971, 2044, 2116, 2189,
     2262, 2334, 2407, 2479, 2552, 2625, 2699,
 ]
-LABEL_COL = (59, 450)  # "Názov zákazky:" / "zák.č." stĺpec
-# 4 hranice = 3 stĺpce: spolu odpr. hodín | hodinová sadzba | spolu v EUR
+LABEL_COL = (59, 450)  # the "Názov zákazky:" / "zák.č." (job name / job no.) column
+# 4 boundaries = 3 columns: total hours worked | hourly rate | total in EUR
 TOTAL_BOUNDS = [2699, 2915, 3131, 3347]
 
-# 10 hraníc = 9 riadkov zákaziek
+# 10 boundaries = 9 job rows
 ZAKAZKA_ROWS = [379, 531, 683, 836, 987, 1142, 1294, 1447, 1601, 1753]
 SOBOTY_ROW = (1753, 1894)
 
-# prahy pre klasifikáciu bunky podľa podielu tmavých pixelov (0..1)
-PRAH_PRAZDNA = 0.06    # pod týmto = prázdna bunka (žiadny zápis)
-PRAH_PRESKRTNUTA = 0.35  # nad týmto = prečiarknutá/vyplnená (víkend), nie číslo
+# thresholds for classifying a cell by its share of dark pixels (0..1)
+PRAH_PRAZDNA = 0.06    # below this = empty cell (nothing written)
+PRAH_PRESKRTNUTA = 0.35  # above this = crossed out or filled (weekend), not a number
 
-# odsadenie od okraja bunky pri meraní podielu tmavých pixelov (aby sa
-# nezarátal samotný rám mriežky, ktorý by inak falošne vyzeral ako
-# rukopis). Bunky sú širšie než vysoké, preto je zvislé odsadenie väčšie.
+# inset from the cell edge when measuring the share of dark pixels (so the grid lines themselves are
+# not counted, which would falsely look like handwriting). Cells are wider than tall, so the
+# vertical inset is larger.
 PAD_X = 6
 PAD_Y = 16
 
@@ -67,7 +63,7 @@ def skaluj_y(hodnota_px: float, vyska_obrazka: int) -> int:
 
 
 def skalovana_sablona(sirka_obrazka: int, vyska_obrazka: int) -> dict:
-    """Vráti všetky súradnice šablóny prepočítané na skutočnú veľkosť obrázka."""
+    """Returns all template coordinates scaled to the actual image size."""
     def sx(v):
         return skaluj_x(v, sirka_obrazka)
 

@@ -1,27 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-extractor.py  Extrakcia dát z naskenovaného "PRACOVNÝ VÝKAZ" (PDF).
+extractor.py - data extraction from a scanned "PRACOVNÝ VÝKAZ" (timesheet) PDF.
 
-Postup pre každú stranu PDF:
-  1. Vykresli stranu ako obrázok (pdfplumber, ~300 DPI).
-  2. Nájdi správnu orientáciu (formulár sa skenuje na šírku, ale PDF
-     stránka je na výšku  vyskúša sa 0/90/180/270° a vyberie sa tá,
-     kde OCR v hornej časti nájde kľúčové slová formulára).
-  3a. PREDVOLENE (config.json → "pouzit_gemini"): celá otočená strana sa
-      pošle NAraz cez Gemini API (google-genai, model "gemini-flash-latest",
-      structured JSON výstup)  jedno volanie na stranu, číta meno/mesiac/
-      rok aj všetky riadky zákaziek s hodinami naraz. Presnosť na rukopise
-      je výrazne vyššia než lokálny Tesseract (pozri user-guide-sk.md, porovnanie).
-      Vyžaduje API kľúč (config.json → "gemini_api_key_subor", zdarma na
-      https://aistudio.google.com/apikey).
-  3b. ZÁLOŽNE (keď Gemini zlyhá/chýba kľúč/žiadne pripojenie): lokálny
-      Tesseract po jednotlivých bunkách podľa kalibrovanej šablóny
-      (template.py)  klasifikuj každú dennú bunku (prázdna/preškrtnutá-
-      víkend/obsahuje hodnotu) podľa podielu tmavých pixelov a OCR len tie
-      s hodnotou. Menej presné, ale funguje úplne offline.
+For each page of the PDF:
+  1. Render the page as an image (pdfplumber, ~300 DPI).
+  2. Find the right orientation (the form is scanned in landscape but the PDF page is portrait): try
+  2. 0/90/180/270° and keep the one where OCR finds the form's keywords at the top.
+  3a. DEFAULT (config.json -> "pouzit_gemini"): the whole rotated page is sent IN ONE GO to the
+Gemini API (google-genai, model "gemini-flash-latest", structured JSON output). One call per page
+reads the name, month and year and all job rows with their hours at once. Accuracy on handwriting is
+much higher than local Tesseract (see user-guide-sk.md for the comparison). Needs an API key
+(config.json -> "gemini_api_key_subor", free at https://aistudio.google.com/apikey).
+  3b. FALLBACK (Gemini failed, no key, no connection): local Tesseract cell by cell, using the
+calibrated template (template.py). Each daily cell is classified (empty / crossed out as a weekend /
+has a value) by its share of dark pixels, and only cells with a value are OCR'd. Less accurate, but
+works fully offline.
 
-Výsledok je „najlepší odhad"  vždy sa zobrazí používateľovi na kontrolu
-a opravu v appke pred zápisom do Excelu (viď app.py).
+The result is a "best guess": it is always shown to the user for checking and correcting in the app
+before anything is written to Excel (see app.py).
 """
 
 import io
@@ -126,19 +122,19 @@ def _levenshtein(a: str, b: str) -> int:
 
 
 def _rozdielne_mena(meno1: str, meno2: str) -> bool:
-    """Rozhodne, či dve mená zamestnancov sú jednoznačne odlišné.
+    """
+    Decides whether two employee names are clearly different.
 
-    Heuristika sa správa takto:
-    - Ak aspoň jedno meno chýba, nevyhlasovať rozdiel (nie je dosť informácií).
-    - Ak tokeny men sú identické - považovať za rovnaké.
-    - Ak medzi tokenmi nie je žiadna zhoda -> považovať za rozdielne.
-    - Ak len malá časť tokenov sa zhoduje (menej než polovica), považovať za rozdielne.
-    - Inak použiť Levenshteinovu vzdialenosť na zreťazené tokeny ako poslednú
-      istotu (veľký edit-distančný rozdiel považujeme za rozdielne mená).
+    The heuristic:
+    - If at least one name is missing, do not declare a difference (not enough information).
+    - If the name tokens are identical, treat them as the same.
+    - If no tokens match, treat them as different.
+    - If only a small share of tokens match (less than half), treat them as different.
+    - Otherwise use the Levenshtein distance of the joined tokens as the last check (a large edit
+      distance means different names).
 
-    Táto zmena znižuje riziko, že dvaja rôzni ľudia so spoločným
-    priezviskom budú zlúčení do jedného výkazu, ale zároveň stále necháva
-    priestor pre malé OCR variácie toho istého mena.
+    This lowers the risk of merging two different people who share a surname into one timesheet,
+    while still allowing small OCR variations of the same name.
     """
     tokeny1 = _tokeny_mena(meno1)
     tokeny2 = _tokeny_mena(meno2)
@@ -166,7 +162,7 @@ def _rozdielne_mena(meno1: str, meno2: str) -> bool:
     return False
 
 
-# ---------------------------------------------------------------- rotácia
+# ---------------------------------------------------------------- rotation
 
 _KLUCOVE_SLOVA_VYKAZU = ("pracovny vykaz", "mesiac", "zakazky", "den v mesiaci")
 
@@ -184,16 +180,15 @@ def _skore_orientacie(obrazok: Image.Image) -> int:
 
 
 def over_na_citatelnu_polohu(obrazok: Image.Image) -> tuple:
-    """Vráti (obrázok v čitateľnej polohe, uhol). Vyskúša všetky 4 otočenia
-    a vyberie to s najvyšším skóre kľúčových slov (pri zhode sa uprednostní
-    90°, keďže firemná šablóna sa najčastejšie skenuje takto otočená).
+    """
+    Returns (image in readable orientation, angle). Tries all 4 rotations and picks the one with the
+    highest keyword score (ties go to 90°, the way the company form is usually scanned).
 
-    Predtým sa pri skóre >=2 na 90° ostatné 3 uhly vôbec neskúšali (kvôli
-    rýchlosti na pomalom CPU) - v praxi sa to ukázalo nespoľahlivé: niektoré
-    scany boli otočené inak (alebo vôbec), a napriek tomu skóroval falošný
-    90°-kandidát dosť vysoko na to, aby sa zobral bez porovnania so
-    skutočne správnym uhlom, čo pri geometricky kalibrovaných záložných
-    cestách (Azure/Tesseract) úplne rozbilo priradenie buniek."""
+    It used to skip the other 3 angles once 90° scored >= 2 (for speed on a slow CPU). In practice
+    that was unreliable: some scans were rotated differently (or not at all), yet a false 90°
+    candidate scored high enough to be taken without comparing it to the really correct angle, which
+    completely broke the cell mapping of the geometrically calibrated fallbacks (Azure/Tesseract).
+    """
     najlepsi_uhol, najlepsi_obrazok, najlepsie_skore = None, None, -1
     for uhol in (90, 0, 180, 270):
         otoceny = obrazok.rotate(uhol, expand=True) if uhol else obrazok
@@ -204,7 +199,7 @@ def over_na_citatelnu_polohu(obrazok: Image.Image) -> tuple:
     return najlepsi_obrazok, najlepsi_uhol
 
 
-# ---------------------------------------------------------------- mriežka
+# ---------------------------------------------------------------- grid
 
 def _stlpcove_hranice(arr: np.ndarray, prah: float = 0.3) -> list:
     dark = arr < 128
@@ -224,10 +219,11 @@ def _stlpcove_hranice(arr: np.ndarray, prah: float = 0.3) -> list:
 
 
 def over_stlpce_dni(arr: np.ndarray, sablona: dict) -> bool:
-    """Rýchla kontrola zdravého rozumu: naozaj vidno v obrázku približne
-    31 rovnomerne rozmiestnených stĺpcových čiar tam, kde ich šablóna
-    očakáva? Ak nie (iný formulár, výrazne posunutý sken), vráti False
-    a spracovanie danej strany sa označí ako 'over ručne'."""
+    """
+    Quick sanity check: are there really about 31 evenly spaced column lines in the image where the
+    template expects them? If not (a different form, a badly shifted scan), returns False and the
+    page is marked 'check by hand'.
+    """
     h, w = arr.shape
     y0, y1 = sablona["zakazka_rows"][0], sablona["zakazka_rows"][-1]
     pas = arr[y0:y1, :]
@@ -264,7 +260,7 @@ def _klasifikuj_bunku(arr: np.ndarray, box: tuple) -> str:
     return "hodnota"
 
 
-# ---------------------------------------------------------------- OCR hodnôt (záložná lokálna cesta)
+# ---------------------------------------------------------------- OCR of values (local fallback)
 
 _CISLO_RE = re.compile(r"(\d{1,3})(?:[.,](\d{1,2}))?")
 
@@ -274,8 +270,8 @@ def _precisti_cislo(text: str):
     if not text or _bez_diakritiky(text).strip() in ("empty", "prazdne", "prázdne"):
         return None
     if any(znak.isalpha() for znak in text):
-        # bunka obsahuje písmenový kód (napr. "RD", "1D" - dovolenka/absencia),
-        # nie počet hodín - preskočiť, nie hádať číslo z primiešaných číslic
+        # the cell holds a letter code ("RD", "1D": leave or absence), not a number of hours; skip
+        # it rather than guess a number from stray digits
         return None
     m = _CISLO_RE.search(text)
     if not m:
@@ -292,11 +288,12 @@ def _precisti_cislo(text: str):
 
 
 def _precitaj_cislo_tesseract(obrazok: Image.Image):
-    """Jeden rýchly OCR pokus na bunku (psm 7  jeden riadok textu). Viac
-    pokusov (rôzne psm) by presnosť na rukopise zlepšilo len málo, ale
-    na tomto (pomalom, CPU-only) počítači by spustenie tesseract.exe
-    2-3x na bunku spomalilo celý výkaz o minúty  radšej rýchlo a nechať
-    prípadnú opravu na používateľa v recenznej tabuľke."""
+    """
+    One quick OCR attempt per cell (psm 7, a single line of text). More attempts (different psm
+    modes) would improve accuracy on handwriting only a little, but on this slow, CPU-only computer
+    running tesseract.exe 2-3 times per cell would slow a timesheet down by minutes. Better to be
+    fast and leave any fixes to the user in the review table.
+    """
     if not OCR_DOSTUPNE:
         return None
     velky = obrazok.resize((obrazok.width * 3, obrazok.height * 3), Image.LANCZOS)
@@ -309,15 +306,17 @@ def _precitaj_cislo_tesseract(obrazok: Image.Image):
 
 
 def precitaj_hodnotu_bunky(obrazok_bunky: Image.Image):
-    """Vráti (hodnota:float|None, zdroj:str) pre jednu dennú bunku (záložná
-    lokálna Tesseract cesta, keď Gemini nie je k dispozícii)."""
+    """
+    Returns (value: float|None, source: str) for one daily cell (local Tesseract fallback, when
+    Gemini is not available).
+    """
     hodnota = _precitaj_cislo_tesseract(obrazok_bunky)
     if hodnota is not None:
         return hodnota, "tesseract"
     return None, "nerozpoznane"
 
 
-# ---------------------------------------------------------------- hlavička
+# ---------------------------------------------------------------- header
 
 _MESIACE = {
     "januar": 1, "february": 2, "marec": 3, "april": 4, "maj": 5, "jun": 6,
@@ -326,9 +325,8 @@ _MESIACE = {
 }
 
 
-# Rukopisné slovenské "j" sa niekedy OCR prečíta ako "y" (napr. "MAJ" -> "MAY")
-# - žiadny slovenský názov mesiaca písmeno "y" neobsahuje, takže táto zámena
-# je bezpečná (nemôže spôsobiť zámenu s iným mesiacom).
+# OCR sometimes reads a handwritten Slovak "j" as "y" ("MAJ" -> "MAY"). No Slovak month name
+# contains a "y", so this substitution is safe (it cannot turn into another month).
 _OCR_ZAMENA_MESIAC = str.maketrans({"y": "j"})
 
 
@@ -346,13 +344,13 @@ def _rozpoznaj_mesiac(text: str):
 
 
 def _rozumny_rok(rok):
-    """Vráti prečítaný rok, len ak je v rozumnom rozsahu okolo aktuálneho
-    dátumu, inak None. Rukopisný rok OCR/AI občas prečíta so zámenou jednej
-    číslice (napr. "2026" ako "2020") - keďže výkaz sa vždy odovzdáva krátko
-    po mesiaci, na ktorý sa vzťahuje (najviac vlaňajší december v januári),
-    takto zjavne nesprávny rok radšej necháme prázdny, aby si ho appka
-    vyžiadala od používateľa (rovnako ako pri chýbajúcom mene/mesiaci), než
-    aby sa ticho zapísal nesprávny rok do popisu hárku v mzdovom Exceli."""
+    """
+    Returns the year read only if it is within a sensible range around today, otherwise None. OCR or
+    the AI sometimes misreads one digit of a handwritten year ("2026" as "2020"). A timesheet is
+    always handed in shortly after its month (at most last year's December in January), so an
+    obviously wrong year is left empty and the app asks the user for it (as with a missing name or
+    month) instead of silently writing the wrong year into the sheet name in the payroll workbook.
+    """
     try:
         rok = int(rok)
     except (TypeError, ValueError):
@@ -376,9 +374,10 @@ def _ocr_pole(obrazok: Image.Image, box: tuple, psm: int = 7, lang="slk+eng") ->
 
 
 def precitaj_hlavicku(obrazok: Image.Image, sablona: dict):
-    """Lokálna Tesseract záložná cesta pre meno/mesiac/rok (Gemini cesta má
-    vlastné, oveľa spoľahlivejšie čítanie hlavičky  pozri
-    precitaj_stranu_gemini)."""
+    """
+    Local Tesseract fallback for name/month/year (the Gemini path reads the header itself, much more
+    reliably; see precitaj_stranu_gemini).
+    """
     meno = _ocr_pole(obrazok, sablona["meno_box"], psm=7)
     meno = re.sub(r"(?i)^meno\s*pracovn[ií]ka\s*:?\s*", "", meno).strip()
 
@@ -391,13 +390,13 @@ def precitaj_hlavicku(obrazok: Image.Image, sablona: dict):
 
 
 def precitaj_zakazku(obrazok: Image.Image, sablona: dict, riadok_idx: int) -> str:
-    """Prečíta číslo zákazky z celého dvojriadkového popisku ('Názov
-    zákazky:' + 'zák.č.'). Skúšalo sa obmedziť len na spodnú polovicu
-    (samotné 'zák.č.') s psm 7 (jeden riadok) pre rýchlosť  na reálnych
-    skenoch to ale takmer vždy vrátilo prázdny/nezmyselný text (samotný
-    rukopis bez okolitého kontextu riadku sa horšie segmentuje), takže sa
-    to neoplatilo. psm 6 na celom bloku je o niečo pomalšie, ale spoľahlivo
-    nájde číslice takmer vo všetkých riadkoch."""
+    """
+    Reads the job number from the whole two-line label ('Názov zákazky:' + 'zák.č.'). Limiting it to
+    the lower half (just 'zák.č.') with psm 7 (single line) was tried for speed, but on real scans
+    it almost always returned empty or nonsense text (handwriting without the surrounding line
+    context segments worse), so it was not worth it. psm 6 on the whole block is a little slower but
+    finds the digits on almost every row.
+    """
     y0 = sablona["zakazka_rows"][riadok_idx]
     y1 = sablona["zakazka_rows"][riadok_idx + 1]
     x0, x1 = sablona["label_col"]
@@ -409,7 +408,7 @@ def precitaj_zakazku(obrazok: Image.Image, sablona: dict, riadok_idx: int) -> st
     return "".join(cisla) if cisla else text.strip()
 
 
-# ---------------------------------------------------------------- Gemini (cloud, presné)
+# ---------------------------------------------------------------- Gemini (cloud, accurate)
 
 _GEMINI_SCHEMA = {
     "type": "object",
@@ -507,23 +506,23 @@ def _je_kvota_vycerpana(chyba) -> bool:
     return "resource_exhausted" in text or "429" in text or "quota" in text or "rate limit" in text
 
 
-# Ak Gemini/Azure raz v tomto behu appky vráti "kvóta vyčerpaná", ďalšie stránky
-# v tom istom dávkovom načítaní (často desiatky) by narazili na presne tú istú
-# chybu - namiesto toho, aby každá z nich znova čakala na 3 márne pokusy s
-# odstupom, na chvíľu sa daná služba úplne preskočí a ide sa rovno na ďalšiu
-# záložnú cestu v reťazci (Gemini -> Azure -> lokálny Tesseract).
+# If Gemini or Azure returns "quota exhausted" once during this run, the following pages of the same
+# batch (often dozens) would hit exactly the same error. Instead of each of them waiting through 3
+# futile retries, the service is skipped for a while and processing goes straight to the next
+# fallback in the chain (Gemini -> Azure -> local Tesseract).
 _KVOTA_COOLDOWN_S = 120
 _gemini_kvota_vycerpana_do = 0.0
 _azure_kvota_vycerpana_do = 0.0
 
 
 def precitaj_stranu_gemini(obrazok: Image.Image, konfig: dict):
-    """Pošle celú (už otočenú) stranu na Gemini API a vráti (výsledok, chyba).
-    výsledok je {"hlavicka":..., "riadky":...} v internom formáte, alebo None
-    keď Gemini nie je k dispozícii/zlyhá (appka potom použije lokálnu
-    Tesseract cestu). chyba je None, pokiaľ Gemini nebol nakonfigurovaný
-    (žiadny kľúč - očakávaný stav, nič sa nezobrazuje), inak text poslednej
-    chyby zo skutočného pokusu o volanie API (zobrazí sa používateľovi)."""
+    """
+    Sends the whole (already rotated) page to the Gemini API and returns (result, error). result is
+    {"hlavicka": ..., "riadky": ...} in the internal format, or None when Gemini is unavailable or
+    fails (the app then uses the local Tesseract path). error is None if Gemini was not configured
+    (no key: an expected state, nothing is shown), otherwise the text of the last error from a real
+    API call (shown to the user).
+    """
     global _gemini_kvota_vycerpana_do
     if _genai is None:
         return None, None
@@ -539,12 +538,11 @@ def precitaj_stranu_gemini(obrazok: Image.Image, konfig: dict):
     klient = _genai.Client(api_key=kluc)
     data = None
     posledna_chyba = None
-    # 3 pokusy s krátkym odstupom  chráni pred prechodnými chybami (429
-    # rate-limit, výpadok siete), aby jedna krátkodobá chyba nezhodila
-    # celú stranu na menej presnú lokálnu cestu bez toho, aby si to
-    # používateľ vôbec všimol. Výnimka: vyčerpaná kvóta sa v priebehu pár
-    # sekúnd neobnoví, opakovanie tej istej požiadavky je zbytočné čakanie -
-    # skončí sa hneď na 1. pokuse a zapne sa cooldown pre zvyšok dávky.
+    # 3 attempts with a short delay protect against transient errors (429 rate limit, network
+    # outage), so one brief failure does not drop the whole page to the less accurate local path
+    # without the user even noticing. Exception: an exhausted quota does not recover within seconds
+    # and retrying the same request is pointless waiting, so it stops after the 1st attempt and
+    # switches on a cooldown for the rest of the batch.
     for pokus in range(3):
         try:
             odpoved = klient.models.generate_content(
@@ -571,11 +569,10 @@ def precitaj_stranu_gemini(obrazok: Image.Image, konfig: dict):
     riadky = []
     for polozka in data.get("riadky") or []:
         zakazka_text = str(polozka.get("zakazka") or "").strip()
-        # Gemini niekedy vráti aj názov zákazky spolu s číslom - zaujíma nás
-        # len číselný kód (rovnako ako lokálna Tesseract cesta v precitaj_zakazku)
-        # Ak sa žiadne číslo nenašlo, riadok sa napriek tomu nezahodí (odpracované
-        # hodiny by sa inak stratili) - označí sa "firma" a používateľ ho doplní/
-        # skontroluje v appke.
+        # Gemini sometimes returns the job name together with the number; only the numeric code
+        # matters (as in the local Tesseract path in precitaj_zakazku). If no number is found, the
+        # row is still kept (otherwise the hours worked would be lost): it is marked "firma" and the
+        # user fills it in or checks it in the app.
         zakazka = "".join(re.findall(r"\d+", zakazka_text)) or "firma"
         dni = {}
         for zaznam in polozka.get("dni") or []:
@@ -598,9 +595,9 @@ def precitaj_stranu_gemini(obrazok: Image.Image, konfig: dict):
                 continue
             if 1 <= den <= T.POCET_DNI and den not in dni:
                 neisté.append(den)
-        # riadok sa nezahadzuje len preto, že sa v ňom nenašli žiadne hodiny -
-        # inak by sa strácali celé riadky, ktoré Gemini nevedel spoľahlivo
-        # prečítať (viď GEMINI_PROMPT: má poslať riadok aj s prázdnym dni)
+        # a row is not dropped just because no hours were found in it, otherwise whole rows Gemini
+        # could not read reliably would be lost (see GEMINI_PROMPT: it must return the row even with
+        # empty days)
         if zakazka_text or dni or neisté:
             riadky.append({"zakazka": zakazka, "dni": dni, "neisté_dni": neisté})
 
@@ -612,7 +609,8 @@ def precitaj_stranu_gemini(obrazok: Image.Image, konfig: dict):
     return {"hlavicka": hlavicka, "riadky": riadky}, None
 
 
-# ---------------------------------------------------------- Azure Document Intelligence (cloud, záložné)
+# ---------------------------------------------------------- Azure Document Intelligence (cloud,
+# fallback)
 
 def _nacitaj_azure_udaje(konfig: dict):
     endpoint = (konfig.get("azure_di_endpoint") or "").strip()
@@ -629,17 +627,16 @@ def _nacitaj_azure_udaje(konfig: dict):
 
 
 def _znaky_slova(slovo, mierka_x: float, mierka_y: float):
-    """Rozdelí jedno Azure "slovo" na jednotlivé znaky, s odhadovanou
-    x-pozíciou každého znaku (lineárne rozdelenie šírky ohraničujúceho
-    rámca slova, prepočítané z jednotiek strany na pixely nášho obrázka).
+    """
+    Splits one Azure "word" into single characters, with an estimated x position for each (the
+    word's bounding box width split evenly, converted from page units to the pixels of our image).
 
-    Dôvod: v tesnej mriežke bez medzery medzi susednými dennými bunkami
-    Azure niekedy zlúči viacero susedných rukopisných znakov (napr. z
-    rôznych dní) do JEDNÉHO "slova" (napr. "X8888DX" cez 7 dní naraz).
-    Mapovanie na úrovni celého slova by takú bunku buď priradilo len k
-    jednému dňu, alebo (keďže obsahuje písmená ako X) ju celú zahodilo.
-    Práca na úrovni znakov toto rieši - každý znak dostane vlastný odhad
-    polohy a mapuje sa do svojej bunky nezávisle."""
+    Reason: in a tight grid with no gap between neighbouring daily cells, Azure sometimes merges
+    several handwritten characters from different days into ONE "word" ("X8888DX" across 7 days).
+    Mapping whole words would either assign such a cell to one day only or, since it contains
+    letters like X, drop it completely. Working per character fixes that: each character gets its
+    own position and is mapped to its own cell.
+    """
     poly = slovo.polygon or []
     xs = poly[0::2]
     ys = poly[1::2]
@@ -658,10 +655,12 @@ def _znaky_slova(slovo, mierka_x: float, mierka_y: float):
 
 
 def _text_v_boxe(slova, box) -> str:
-    """slova: zoznam (znak, cx, cy, je_zaciatok_slova). Vráti text všetkých
-    znakov, ktorých poloha padne do box=(x0,y0,x1,y1), zoradený zľava
-    doprava (ako sa prirodzene číta); medzera sa vloží len na hraniciach
-    pôvodných Azure slov, nie medzi znakmi v rámci jedného slova."""
+    """
+    slova: a list of (character, cx, cy, is_word_start). Returns the text of all characters whose
+    position falls inside box=(x0,y0,x1,y1), sorted left to right (the natural reading order); a
+    space is inserted only at the boundaries of the original Azure words, not between characters of
+    one word.
+    """
     x0, y0, x1, y1 = box
     zhody = sorted(
         ((cx, znak, zaciatok) for znak, cx, cy, zaciatok in slova
@@ -677,12 +676,13 @@ def _text_v_boxe(slova, box) -> str:
 
 
 def precitaj_stranu_azure(obrazok: Image.Image, sablona: dict, konfig: dict):
-    """Záložná cloudová cesta, keď Gemini nie je k dispozícii/zlyhá. Na rozdiel
-    od Gemini nerozumie štruktúre formulára sama - použije sa jej surové
-    rozpoznanie textu s polohou (model "prebuilt-read", silné na rukopis) a
-    slová sa priradia do buniek podľa NAŠICH kalibrovaných súradníc v
-    template.py (rovnaká šablóna, akú používa aj lokálna Tesseract cesta).
-    Vráti (výsledok, chyba) v rovnakom tvare ako precitaj_stranu_gemini."""
+    """
+    Cloud fallback when Gemini is unavailable or fails. Unlike Gemini it does not understand the
+    form's structure itself: its raw text recognition with positions is used (model "prebuilt-read",
+    strong on handwriting) and the words are mapped to cells by OUR calibrated coordinates in
+    template.py (the same template the local Tesseract path uses). Returns (result, error) in the
+    same shape as precitaj_stranu_gemini.
+    """
     global _azure_kvota_vycerpana_do
     if _AzureClient is None:
         return None, None
@@ -749,11 +749,11 @@ def precitaj_stranu_azure(obrazok: Image.Image, sablona: dict, konfig: dict):
             if hodnota is not None:
                 dni[d + 1] = hodnota
             elif not any(z.isalpha() for z in bunka_text):
-                # bunka má obsah, ale nepodarilo sa z neho spoľahlivo
-                # vytiahnuť číslo - na ručnú kontrolu (nehádať)
+                # the cell has content, but no number could be extracted from it reliably: leave it
+                # for a manual check (do not guess)
                 neisté.append(d + 1)
-            # inak (obsahuje písmená - RD/1D/X a pod.) sa úmyselne ignoruje,
-            # nie je to počet hodín
+            # otherwise (it contains letters, RD/1D/X and so on) it is ignored on purpose: it is not
+            # a number of hours
 
         if not zakazka_text and not dni and not neisté:
             continue
@@ -766,22 +766,22 @@ def precitaj_stranu_azure(obrazok: Image.Image, sablona: dict, konfig: dict):
 # ---------------------------------------------------------------- spracovanie strany
 
 def spracuj_stranu(obrazok: Image.Image, docasny_priecinok: str, konfig: dict) -> dict:
-    """Vráti štruktúru jednej strany výkazu (pred zlúčením viacerých strán
-    toho istého zamestnanca/mesiaca). Reťazec záložných ciest, od
-    najpresnejšej: Gemini (rozumie celej stránke naraz) -> Azure Document
-    Intelligence (surové rozpoznanie textu s polohou, priradené do buniek
-    podľa template.py) -> lokálny Tesseract po jednotlivých bunkách (funguje
-    úplne offline, ale najmenej presne)."""
+    """
+    Returns the structure of one timesheet page (before merging several pages of the same employee
+    and month). The chain of fallbacks, most accurate first: Gemini (understands the whole page at
+    once) -> Azure Document Intelligence (raw text recognition with positions, mapped to cells by
+    template.py) -> local Tesseract cell by cell (fully offline, but least accurate).
+    """
     obrazok, uhol = over_na_citatelnu_polohu(obrazok)
     sirka, vyska = obrazok.size
     sablona = T.skalovana_sablona(sirka, vyska)
 
     arr = np.array(obrazok.convert("L"))
     mriezka_ok = over_stlpce_dni(arr, sablona)
-    # aj pri najlepšom skóre otočenia sa mohla zvoliť nesprávna poloha (iný
-    # typ skenu, viac výkazov na jednej strane a pod.) - firemná šablóna je
-    # vždy na šírku; ak pomer strán vôbec nesedí, kalibrovaná mriežka by
-    # bola priradená na úplne inom mieste, radšej vždy na ručnú kontrolu
+    # even with the best rotation score the wrong orientation may have been chosen (a different kind
+    # of scan, several timesheets on one page, ...). The company form is always landscape; if the
+    # aspect ratio does not fit at all, the calibrated grid would land somewhere else entirely, so
+    # it always goes to a manual check
     ocakavany_pomer = T.REF_W / T.REF_H
     skutocny_pomer = sirka / vyska if vyska else 0
     if abs(skutocny_pomer - ocakavany_pomer) > 0.3:
@@ -819,7 +819,7 @@ def spracuj_stranu(obrazok: Image.Image, docasny_priecinok: str, konfig: dict) -
                 "obrazok": obrazok,
             }
 
-    # posledná záložná lokálna cesta (bez internetu / bez kľúčov / obe cloudové zlyhali)
+    # the last local fallback (no internet, no keys, or both cloud services failed)
     hlavicka = precitaj_hlavicku(obrazok, sablona)
 
     riadky = []
@@ -843,13 +843,13 @@ def spracuj_stranu(obrazok: Image.Image, docasny_priecinok: str, konfig: dict) -
             if hodnota is not None:
                 dni[d + 1] = hodnota
             else:
-                # bunka obsahuje rukopis, ale OCR ho nevedel prečítať -
-                # v appke sa zvýrazní, aby ju používateľ ručne skontroloval
+                # the cell contains handwriting but OCR could not read it; the app highlights it so
+                # the user checks it by hand
                 neisté.append(d + 1)
         if not zakazka and not dni and not neisté:
-            continue  # naozaj prázdny riadok šablóny, nič sa nestratí
-        # zákazka sa nerozpoznala, ale riadok má hodnoty - neschovávať ich,
-        # označiť "firma" a nechať používateľa doplniť/skontrolovať v appke
+            continue  # really an empty template row, nothing is lost
+        # the job was not recognised but the row has values: do not hide them; mark it "firma" and
+        # let the user fill it in or check it in the app
         riadky.append({"zakazka": zakazka or "firma", "dni": dni, "neisté_dni": neisté})
 
     return {
@@ -866,7 +866,7 @@ def spracuj_stranu(obrazok: Image.Image, docasny_priecinok: str, konfig: dict) -
 
 
 def spracuj_pdf(cesta_pdf: str, docasny_priecinok: str, konfig: dict, dpi: int = 300) -> list:
-    """Vráti zoznam výsledkov spracuj_stranu() pre každú stranu PDF."""
+    """Returns the list of spracuj_stranu() results for each page of the PDF."""
     vysledky = []
     with pdfplumber.open(cesta_pdf) as pdf:
         for strana in pdf.pages:
@@ -876,38 +876,32 @@ def spracuj_pdf(cesta_pdf: str, docasny_priecinok: str, konfig: dict, dpi: int =
 
 
 def _su_rozcestene_hlavicky(hr1: dict, hr2: dict) -> tuple:
-    """Rozhodne, či dve po sebe idúce strany patria rôznym výkazom (split),
-    alebo sa majú zlúčiť do jedného (napr. jeden zamestnanec, ktorého
-    zákazky nezmestili na jednu stranu, pokračuje na ďalšej).
+    """
+    Decides whether two consecutive pages belong to different timesheets (split) or should be merged
+    into one (e.g. one employee whose jobs did not fit on one page continues on the next).
 
-    Vráti (rozdelit: bool, isty: bool) - "isty" hovorí, či bolo rozhodnutie
-    založené na spoľahlivom porovnaní (obe mená boli prítomné), alebo len na
-    bezpečnom defaulte, keď meno na aspoň jednej strane chýbalo.
+    Returns (rozdelit: bool, isty: bool); "isty" (certain) says whether the decision rests on a
+    reliable comparison (both names present) or only on the safe default when a name was missing on
+    at least one page.
 
-    Priorita rozhodnutia:
-    1) Ak sú OBIDVE mená prítomné -> rozhodne len ich podobnosť
-       (_rozdielne_mena): jasne rôzne mená = split, rovnaké/OCR-podobné = zlúčiť.
-       Toto rozhodnutie je "isté".
-    2) Ak čo i len JEDNO z mien chýba (nedalo sa spoľahlivo prečítať) ->
-       NEDÁ sa overiť, že ide o toho istého zamestnanca, takže sa VŽDY
-       rozdelí (split), bez ohľadu na to, či sa mesiac/rok zhodujú. Toto
-       rozhodnutie je "neisté" - appka o tom upozorní používateľa.
+    Order of the decision:
+    1) If BOTH names are present, only their similarity decides (_rozdielne_mena): clearly different
+    names = split, the same or OCR-similar = merge. This decision is "certain".
+    2) If even ONE name is missing (could not be read reliably), it CANNOT be confirmed that it is
+    the same employee, so the pages are ALWAYS split, whether or not the month and year match. This
+    decision is "uncertain" and the app warns the user.
 
-       Toto je zámerne "bezpečný" default: keď PDF obsahuje výkazy viacerých
-       zamestnancov za sebou (typicky za rovnaký mesiac/rok, keďže sa
-       podávajú spolu), a jednému z nich sa meno nepodarí prečítať, staré
-       správanie (porovnávať už len mesiac/rok) takmer vždy vyhodnotilo
-       "rovnaký mesiac/rok -> netreba rozdeliť" a ticho zlúčilo hodiny
-       DVOCH rôznych ľudí pod jedno meno - druhý zamestnanec potom v
-       zápise do zdieľaného mzdového Excelu úplne chýbal.
+       This is a deliberately "safe" default. When a PDF holds several employees' timesheets in a
+    row (usually for the same month and year, since they are handed in together) and one name cannot
+    be read, the old behaviour (comparing only month and year) almost always concluded "same
+    month/year, no split" and silently merged the hours of TWO different people under one name; the
+    second employee was then missing entirely from the shared payroll workbook.
 
-       Omylom rozdeliť je oproti tomu bezpečné a ľahko napraviteľné: keby
-       naozaj išlo o pokračovanie toho istého zamestnanca na ďalšej strane,
-       vznikne z toho samostatný výkaz s vlastnými riadkami zákaziek -
-       používateľ ho v appke uvidí označený na kontrolu (viď
-       "moze_byt_pokracovanie" nižšie), doplní rovnaké meno/mesiac/rok a
-       schváli ho zvlášť; keďže ide o iné čísla zákaziek (iné riadky v
-       Exceli), nič sa tým nestratí ani neprepíše.
+       Splitting by mistake, on the other hand, is safe and easy to fix: if it really was the same
+    employee continuing on the next page, it becomes a separate timesheet with its own job rows. The
+    user sees it flagged for checking in the app (see "moze_byt_pokracovanie" below), fills in the
+    same name/month/year and approves it separately; since it has other job numbers (other rows in
+    Excel), nothing is lost or overwritten.
     """
     try:
         _logger.debug("Comparing headers: %r  VS  %r", hr1, hr2)
@@ -957,11 +951,10 @@ def _zluc_skupinu_stran(vysledky_stran: list, nazov_zdroja: str) -> dict:
         "gemini_chyby": [],
         "azure_chyby": [],
         "stranky_obrazky": [],
-        # True, keď táto skupina strán vznikla rozdelením PDF na mieste, kde sa
-        # meno zamestnanca na jednej zo strán nedalo spoľahlivo prečítať
-        # (pozri _su_rozcestene_hlavicky) - môže ísť naozaj o iného
-        # zamestnanca, ale aj o pokračovanie predchádzajúceho výkazu na
-        # ďalšej strane toho istého PDF. Appka na to používateľa upozorní.
+        # True when this group of pages came from splitting the PDF at a point where the employee
+        # name on one of the pages could not be read reliably (see _su_rozcestene_hlavicky). It may
+        # really be another employee, or the previous timesheet continuing on the next page of the
+        # same PDF. The app warns the user about it.
         "moze_byt_pokracovanie": bool(vysledky_stran[0].get("_neisty_zaciatok")),
     }
     for strana in vysledky_stran:
@@ -979,14 +972,14 @@ def _zluc_skupinu_stran(vysledky_stran: list, nazov_zdroja: str) -> dict:
 
 
 def zluc_stranyd_do_vykazov(vysledky_stran: list, nazov_zdroja: str) -> list:
-    """Zlúči strany JEDNÉHO PDF súboru do jedného alebo viacerých výkazov.
+    """
+    Merges the pages of ONE PDF file into one or more timesheets.
 
-    Ak PDF obsahuje viac strán s rovnakou hlavičkou (zamestnanec/mesiac/rok),
-    spoja sa do jedného výkazu. Ak sú strany s rôznymi jasne rozpoznanými
-    zamestnancami alebo iným mesiacom/rokom, vytvoria sa samostatné výkazy.
+    Pages with the same header (employee/month/year) are joined into one timesheet. Pages with
+    different, clearly recognised employees or another month/year become separate timesheets.
 
-    Dodatočné debug logovanie: zapíše per-page hlavičky pred zlúčením a
-    zaznamená, kde sa vykonalo rozdelenie skupín.
+    Extra debug logging: writes the per-page headers before merging and records where groups were
+    split.
     """
     if not vysledky_stran:
         return []
@@ -1034,11 +1027,10 @@ def zluc_stranyd_do_vykazov(vysledky_stran: list, nazov_zdroja: str) -> list:
                 "rok": strana["hlavicka"].get("rok"),
             }
             if not isty:
-                # Split sa vykonal bez toho, aby boli obe mená prítomné a
-                # jednoznačne porovnané - nová skupina teda môže byť buď
-                # naozaj iný zamestnanec, alebo len pokračovanie
-                # predchádzajúceho výkazu na ďalšej strane. Označiť na
-                # kontrolu (viď "moze_byt_pokracovanie" v _zluc_skupinu_stran).
+                # The split happened without both names being present and clearly compared, so the
+                # new group may really be another employee, or just the previous timesheet
+                # continuing on the next page. Flag it for checking (see "moze_byt_pokracovanie" in
+                # _zluc_skupinu_stran).
                 strana["_neisty_zaciatok"] = True
         else:
             aktualna_skupina.append(strana)

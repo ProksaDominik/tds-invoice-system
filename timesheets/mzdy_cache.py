@@ -1,23 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-mzdy_cache.py  Lokálna JSON cache pre appku (mená zamestnancov, ich
-hodinové sadzby, názvy zákaziek). Slúži IBA na dopĺňanie polí v recenznej
-tabuľke appky (autofill)  samotná mzda sa zapisuje priamo do zdieľaného
-sieťového súboru cez mzdy_siet.py.
+mzdy_cache.py - local JSON cache for the app (employee names, their hourly rates, job names). Used
+ONLY to pre-fill fields in the app's review table (autofill); the payroll itself is written straight
+to the shared network workbook by mzdy_siet.py.
 """
 
 import json
 import os
 
-# Počiatočné údaje pre autofill sa NEUKLADAJÚ v kóde (mená zamestnancov a
-# zoznam zákaziek sú interné údaje firmy). Zamestnanci sa pri prvom spustení
-# prevezmú z config.json ("zamestnanci_stlpce"), názvy zákaziek sa cache
-# naučí postupne pri schvaľovaní výkazov (uloz_nazov_zakazky).
+# The initial autofill data is NOT stored in the code (employee names and the job list are internal
+# company data). Employees are taken from config.json ("zamestnanci_stlpce") on the first run; job
+# names are learned by the cache over time as timesheets are approved (uloz_nazov_zakazky).
 
 
 class MzdyCache:
-    """Lokálna JSON cache (data/mzdy_cache.json) pre autofill v appke.
-    Nie je to mzdový záznam  ten sa zapisuje sieťovo cez mzdy_siet.py."""
+    """
+    Local JSON cache (data/mzdy_cache.json) for autofill in the app.
+    It is not a payroll record - that is written over the network by mzdy_siet.py.
+    """
 
     def __init__(self, konfig: dict):
         self.konfig = konfig
@@ -43,11 +43,11 @@ class MzdyCache:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def nacitaj_zamestnancov(self) -> dict:
-        """{meno: hodinová sadzba}"""
+        """{name: hourly rate}"""
         return dict(self._nacitaj().get("zamestnanci", {}))
 
     def nacitaj_zakazky(self) -> dict:
-        """{č. zákazky: názov}"""
+        """{job number: job name}"""
         return dict(self._nacitaj().get("zakazky", {}))
 
     def ziskaj_sadzbu(self, meno: str) -> float:

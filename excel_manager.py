@@ -1,19 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-excel_manager.py  Práca s Excel tabuľkami.
+excel_manager.py - working with the Excel workbooks.
 
-Tri súbory:
-  zaloha.xlsx              ZÁLOŽNÁ tabuľka: sem sa zapíše každá faktúra hneď
-                            po extrakcii. Tu sa dá upraviť pred schválením.
-                            Riadky ostávajú aj po schválení (trvalá záloha).
-  faktury_vystavene.xlsx   Odberateľské faktúry (TDS je dodávateľ, nám platia).
-                            Jeden hárok, riadok 1 = titulok, riadok 2 = hlavička.
-  faktury_prijate.xlsx    Dodávateľské faktúry (TDS je odberateľ, my platíme).
-                            Dva hárky: „Tuzemské“ (slovenčina) a „Zahraničné“
-                            (iný jazyk), podľa poľa „Jazyk“ zo zálohy. Rovnaké
-                            usporiadanie riadkov ako vyššie.
+Three files:
+  zaloha.xlsx              STAGING workbook: every invoice is written here right after extraction
+and can be edited before approval. Rows stay after approval (a permanent backup).
+  faktury_vystavene.xlsx   Issued invoices (TDS is the supplier, we get paid). One sheet; row 1 =
+title, row 2 = header.
+  faktury_prijate.xlsx     Received invoices (TDS is the customer, we pay). Two sheets, "Tuzemské"
+(domestic) and "Zahraničné" (foreign), chosen by the "Jazyk" field from staging. Same row layout as
+above.
 
-Do hlavnej tabuľky sa riadok dostane až po stlačení tlačidla „Schváliť".
+A row reaches the main workbook only after the "Schváliť" (approve) button is pressed.
 """
 
 import os
@@ -26,16 +24,15 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-# stĺpce záložnej tabuľky (ID a Stav navyše)  jednoduchá tabuľka, bez titulku
-# „Číslo fa - naše" je NA KONCI (nie logicky pri Čísle faktúry), aby staršie
-# záznamy zapísané pred zavedením tohto stĺpca zostali čitateľné (chýbajúce
-# stĺpce sa pri načítaní dopĺňajú ako prázdne, pozri nacitaj_zalohu).
-# „Zádržné krátkodobé" a „Zádržné dlhodobé" sú dva samostatné DÁTUMY, ktoré
-# používateľ zadáva ručne cez „Upraviť"  extrakcia z PDF ich nevyhľadáva,
-# lebo v texte faktúry sa spravidla nenachádzajú (vyplývajú zo zmluvy).
-# Sú ZÁMERNE na konci zoznamu, aby sa staré záznamy zapísané pred ich
-# zavedením nemuseli migrovať (chýbajúce stĺpce sa pri načítaní dopĺňajú
-# ako prázdne  pozri nacitaj_zalohu a _migruj_hlavicku_*).
+# staging workbook columns (with ID and Stav): a simple table without a title.
+# "Číslo fa - naše" is AT THE END (not next to Číslo faktúry, where it would belong logically) so
+# older records written before this column existed stay readable (missing columns are filled in as
+# empty on load, see nacitaj_zalohu).
+# "Zádržné krátkodobé" and "Zádržné dlhodobé" (short- and long-term retention) are two separate
+# DATES the user enters by hand via "Upraviť"; extraction does not look for them because they are
+# usually not on the invoice (they come from the contract). They are DELIBERATELY at the end of the
+# list so older records did not need migrating (missing columns are filled in as empty on load, see
+# nacitaj_zalohu and _migruj_hlavicku_*).
 STLPCE_ZALOHA = [
     "ID", "Číslo faktúry", "Typ", "Jazyk", "Dodávateľ", "IČO dodávateľa",
     "Odberateľ", "IČO odberateľa", "Dátum vystavenia", "Dátum dodania",
@@ -44,11 +41,10 @@ STLPCE_ZALOHA = [
     "Požiadavka na úhradu", "Zákazka", "Poznámka",
     "PDF súbor", "Stav", "Dátum pridania", "Číslo fa - naše",
     "Zádržné krátkodobé", "Zádržné dlhodobé",
-    # Sumy k zádržnému (peňažná hodnota zadržaná z platby faktúry) sú
-    # ZÁMERNE zapísané tu na konci  za dvomi dátumovými stĺpcami z
-    # predošlej fázy, aby už zapísané záznamy v zálohe/hlavnej tabuľke
-    # nemuseli migrovať polohu existujúcich hodnôt. Vyplňuje ich používateľ
-    # ručne cez „Upraviť" (extrakcia ich zo skenu nedokáže vyčítať).
+    # The retention amounts (money held back from the invoice payment) are DELIBERATELY written here
+    # at the end, after the two date columns from the previous phase, so records already in staging
+    # or the main workbook did not need their values moved. The user fills them in by hand via
+    # "Upraviť" (extraction cannot read them from a scan).
     "Zádržné krátkodobé - suma", "Zádržné dlhodobé - suma",
 ]
 
@@ -56,32 +52,30 @@ STAV_CAKA = "Čaká na schválenie"
 STAV_SCHVALENE = "Schválené"
 
 _FORMAT_SUMA = '#,##0.00" €";-#,##0.00" €"'
-_FORMAT_ZOSTATOK = '#,##0.00" €";-#,##0.00" €";;'  # nulu skryje (prázdne = doplatené)
+_FORMAT_ZOSTATOK = '#,##0.00" €";-#,##0.00" €";;'  # hides zero (empty = fully paid)
 _FORMAT_DATUM = "DD.MM.YYYY"
 
-_FARBA_TITULOK_VYSTAVENA = "92D050"     # zelená
-_FARBA_HLAVICKA_VYSTAVENA = "FFC000"    # oranžová
-_FARBA_HLAVICKA_PRIJATA = "F4B6D8"      # ružová
-_FARBA_ZVYRAZNENIE_SUMA = "FFFF00"      # žltá (Suma s DPH)
-_FARBA_ZVYRAZNENIE_SPLATNOST = "FFD966"  # oranžová (Splatnosť)
-_FARBA_ZVYRAZNENIE_ZOSTATOK = "D9D9D9"  # sivá (Zostatok k úhrade)
+_FARBA_TITULOK_VYSTAVENA = "92D050"     # green
+_FARBA_HLAVICKA_VYSTAVENA = "FFC000"    # orange
+_FARBA_HLAVICKA_PRIJATA = "F4B6D8"      # pink
+_FARBA_ZVYRAZNENIE_SUMA = "FFFF00"      # yellow (Suma s DPH)
+_FARBA_ZVYRAZNENIE_SPLATNOST = "FFD966"  # orange (Splatnosť)
+_FARBA_ZVYRAZNENIE_ZOSTATOK = "D9D9D9"  # grey (Zostatok k úhrade)
 
-# riadok titulku (1), riadok hlavičky (2), dáta od riadku 3
+# title row (1), header row (2), data from row 3
 RIADOK_TITULOK = 1
 RIADOK_HLAVICKA = 2
 PRVY_RIADOK_DAT = 3
 
-# -- Odberateľské faktúry (File A: TDS s.r.o. - OF 2026.xlsx) --
-# Presný súhlas s reálnou tabuľkou spoločnosti (hárok „Odoslané faktúry -
-# tuzemské"). Zachovávame aj drobné odlišnosti v hlavičkových textoch
-# (trailing whitespace pri „Zdaniteľné plnenie ", „Zákazka ", „Poznámka "),
-# aby kód nikdy neprepísal existujúcu firemnú hlavičku a záznam sa vždy
-# uložil do bunky pod správnou hlavičkou.
-# Zádržné (dátumy + sumy) je vedené TU, na strane VYSTAVENÝCH faktúr
-# (naši odberatelia zádrž ujú časť platby TDS-ke ako záruku). Nové 4 stĺpce
-# (12-15) sa doplnia migráciou pri prvom spustení; existujúce riadky ostanú
-# s prázdnymi bunkami tam, používateľ ich doplní ručne priamo v Exceli
-# a synchronizuje do Google Kalendára tlačidlom „Synchronizuj kalendár".
+# -- Issued invoices (file A: TDS s.r.o. - OF 2026.xlsx) --
+# Matches the company's real workbook exactly (sheet "Odoslané faktúry - tuzemské"), including small
+# quirks in the header texts (trailing whitespace in "Zdaniteľné plnenie ", "Zákazka ", "Poznámka
+# "), so the code never overwrites the company's header and every value lands under the right
+# header.
+# Retention (dates + amounts) is kept HERE, on the ISSUED side (our customers hold back part of
+# their payment to TDS as a guarantee). The 4 new columns (12-15) are added by migration on first
+# start; existing rows keep empty cells there, the user fills them in Excel and syncs them to Google
+# Calendar with the "Synchronizuj kalendár" button.
 STLPCE_VYSTAVENA_HLAVICKY = [
     "Číslo faktúry", "Odberateľ", "Suma bez DPH v €", "Suma s DPH v €",
     "Zdaniteľné plnenie ", "Splatnosť", "Úhrada - dátum", "Úhrada - suma",
@@ -96,40 +90,35 @@ STLPCE_VYSTAVENA_KLUCE = [
     "Zádržné krátkodobé", "Zádržné dlhodobé",
     "Zádržné krátkodobé - suma", "Zádržné dlhodobé - suma",
 ]
-# meno hárka v OF exceli, kam sa píšu vystavené faktúry. Ak by v budúcnosti
-# pribudli ďalšie odberateľské hárky (napr. „Odoslané faktúry -
-# zahraničné" pre vlastné cudzie faktúry TDS), sem by pribudlo mapovanie
-# podľa jazyka. Zatiaľ všetky vystavené idú do jedného tuzemského hárka.
+# name of the sheet in the OF workbook where issued invoices are written. If more customer sheets
+# are ever added (e.g. "Odoslané faktúry - zahraničné" for TDS's own foreign invoices), a mapping by
+# language goes here. For now all issued invoices go to the one domestic sheet.
 HAROK_VYSTAVENA_TUZEMSKE = "Odoslané faktúry - tuzemské"
-# zvýraznené stĺpce (1-indexované): {index: farba}
+# highlighted columns (1-indexed): {index: colour}
 _ZVYRAZNENIE_VYSTAVENA = {4: _FARBA_ZVYRAZNENIE_SUMA, 6: _FARBA_ZVYRAZNENIE_SPLATNOST,
                           9: _FARBA_ZVYRAZNENIE_ZOSTATOK}
 
-# -- Dodávateľské (prijaté) faktúry (File B: TDS s.r.o. - DF 2026.xlsx) --
-# Excel má 6 hárkov (tuzemské, tuzem.preddavkové, tuzem.dobropisy,
-# zahraničné, zahranič.preddavkové, zahranič.dobropisy). Aplikácia pracuje
-# IBA s „FA 2026-tuzemské" a „FA 2026-zahraničné"  ostatné hárky sa
-# nikdy nečítajú ani nezapisujú.
-# Hlavičky sa BEZ ZMENY prepisujú z reálnej firemnej tabuľky vrátane
-# drobných odlišností (napr. „Úhrada - suma " s trailing whitespace,
-# „Dátum prijatia" bez slova „faktúry" v zahraničnom hárku). Zádržné
-# krátkodobé/dlhodobé (dátumy a sumy) sú pridané NA KONCI  vzniknú
-# v hlavičke pri prvej migrácii, existujúce dátové riadky ostanú
-# s prázdnymi novými bunkami (používateľ ich doplní ručne v Exceli,
-# potom cez tlačidlo „Synchronizuj kalendár" sa zapíšu do Google
-# Kalendára s pripomienkami 30/20/10 dní vopred + v deň zádržného).
+# -- Received invoices (file B: TDS s.r.o. - DF 2026.xlsx) --
+# The workbook has 6 sheets (domestic, domestic advances, domestic credit notes, foreign, foreign
+# advances, foreign credit notes). The app works ONLY with "FA 2026-tuzemské" and "FA
+# 2026-zahraničné"; the other sheets are never read or written.
+# The headers are copied UNCHANGED from the company's real workbook, small quirks included ("Úhrada
+# - suma " with trailing whitespace, "Dátum prijatia" without the word "faktúry" in the foreign
+# sheet). Short- and long-term retention (dates and amounts) is added AT THE END: the header gets
+# the columns on first migration, existing data rows keep empty new cells (the user fills them in
+# Excel, and the "Synchronizuj kalendár" button then writes them to Google Calendar with reminders
+# 30/20/10 days ahead and on the day).
 STLPCE_PRIJATA_TUZEMSKE = [
     "Číslo fa - naše", "Dátum prijatia faktúry", "Dodávateľ", "Číslo faktúry",
     "Suma bez DPH v €", "Suma s DPH v €", "Zdaniteľné plnenie", "Splatnosť",
     "Úhrada - dátum", "Úhrada - suma ", "Zostatok k úhrade",
     "Požiadavka na úhradu", "Zákazka", "Poznámka",
-    # Stĺpec 15 „Stav": existujúci firemný stĺpec bez hlavičky, používaný
-    # účtovníkmi ako status marker (typicky „U" = uhradené, „Ú" = účtované,
-    # prázdne = neuhradené). Hlavička ho pomenuje bez zmeny hodnôt
-    # v už existujúcich riadkoch. Aplikácia sem pre novo pridané faktúry
-    # zapisuje prázdny reťazec  účtovník ho doplní ručne v Exceli.
-    # Zádržné (dátumy + sumy) sa v prijatých faktúrach NEPOUŽÍVA  vzťahuje
-    # sa výhradne na vystavené faktúry (viď STLPCE_VYSTAVENA_HLAVICKY).
+    # Column 15 "Stav": an existing company column without a header, used by the accountants as a
+    # status marker (usually "U" = paid, "Ú" = booked, empty = unpaid). The header names it without
+    # changing the values in existing rows. The app writes an empty string here for new invoices;
+    # the accountant fills it in Excel.
+    # Retention (dates + amounts) is NOT used for received invoices; it applies only to issued ones
+    # (see STLPCE_VYSTAVENA_HLAVICKY).
     "Stav",
 ]
 STLPCE_PRIJATA_ZAHRANICNE = [
@@ -148,25 +137,25 @@ HAROK_ZAHRANICNE = "FA 2026-zahraničné"
 _PREDPONA = {"SK": "DF", "iny": "zDF"}
 _HAROK_PODLA_JAZYKA = {"SK": HAROK_TUZEMSKE, "iny": HAROK_ZAHRANICNE}
 
-# číslovanie DF/zDF RRRRNNN  spoločné pre stĺpec „Číslo faktúry" v zálohe
-# (pridelené už pri nahratí, pozri _rezervuj_cislo_archivu) aj pre „Číslo
-# fa - naše" v hárku Zahraničné (_pridaj_prijatu), ktoré ho len preberá.
+# DF/zDF YYYYNNN numbering: shared by the "Číslo faktúry" column in staging (assigned on upload, see
+# _rezervuj_cislo_archivu) and by "Číslo fa - naše" in the foreign sheet (_pridaj_prijatu), which
+# only copies it.
 _KONFIG_ARCHIVACIA_OD = {"SK": "archivacia_tuzemske_od", "iny": "archivacia_zahranicne_od"}
 
 
 def _vzor_cisla(predpona: str):
-    """Tolerantný vzor na ČÍTANIE DF/zDF čísla zo stĺpca „Číslo fa - naše".
+    """
+    Tolerant pattern for READING a DF/zDF number from the "Číslo fa - naše" column.
 
-    Stĺpec prepisuje účtovníčka ručne priamo v Exceli, takže sa tam bežne
-    objavia drobné odchýlky od tvaru, ktorý zapisuje aplikácia  medzery
-    („DF 1052 / 26"), štvorciferný rok („DF1052/2026") a najmä preklepy
-    v koncovke roka („DF0864/27", „DF0096/25"). Prísny vzor `/RR` pre
-    aktuálny rok takéto riadky NEVIDEL, takže ich aplikácia považovala za
-    voľné čísla a ručné opravy v Exceli ignorovala.
+    The accountant edits this column by hand in Excel, so small deviations from the form the app
+    writes are common: spaces ("DF 1052 / 26"), a four-digit year ("DF1052/2026") and especially
+    typos in the year ("DF0864/27", "DF0096/25"). The strict `/YY` pattern for the current year did
+    NOT see such rows, so the app treated those numbers as free and ignored the manual fixes in
+    Excel.
 
-    Hárok je vždy evidencia jedného roka (HAROK_TUZEMSKE / HAROK_ZAHRANICNE),
-    preto je bezpečné akceptovať ľubovoľnú koncovku roka  rozhoduje samotné
-    poradové číslo. ZÁPIS ostáva prísny: f"{predpona}{n:04d}/{rok2}".
+    Each sheet always covers one year (HAROK_TUZEMSKE / HAROK_ZAHRANICNE), so it is safe to accept
+    any year suffix; the sequence number is what counts. WRITING stays strict:
+    f"{predpona}{n:04d}/{rok2}".
     """
     return re.compile(
         rf"^\s*{re.escape(predpona)}\s*(\d{{1,4}})\s*/\s*\d{{2,4}}\s*$",
@@ -174,14 +163,18 @@ def _vzor_cisla(predpona: str):
 
 
 def _norm_cislo_faktury(v) -> str:
-    """Číslo faktúry dodávateľa zjednotené na porovnávanie medzi zálohou
-    a Excelom (oddeľovače a medzery sa píšu zakaždým inak)."""
+    """
+    The supplier's invoice number, normalised for comparing staging with Excel (separators and
+    spaces vary every time).
+    """
     return re.sub(r"[\s/\-.]+", "", str(v or "")).upper()
 
 
 def _norm_suma(v):
-    """Suma na 2 desatinné miesta; znesie desatinnú čiarku aj medzery
-    v tisícoch („1 234,56"), ktoré vznikajú pri extrakcii zo skenu."""
+    """
+    Amount rounded to 2 decimals; accepts a decimal comma and spaces between thousands ("1 234,56"),
+    which come from scans.
+    """
     if v is None or str(v).strip() == "":
         return None
     try:
@@ -192,18 +185,21 @@ def _norm_suma(v):
 
 
 def _vzor_suboru(predpona: str):
-    """Tolerantný vzor na názov archívneho PDF (DFNNNN-RR.pdf). Prijíma aj
-    doplnok so zákazkou (DF1052-26_RE26.pdf) a ľubovoľnú koncovku roka."""
+    """
+    Tolerant pattern for an archive PDF name (DFNNNN-YY.pdf). Also accepts a job suffix
+    (DF1052-26_RE26.pdf) and any year suffix.
+    """
     return re.compile(rf"^{re.escape(predpona)}(\d{{1,4}})-\d{{2,4}}(?:[_.]|$)",
                       re.IGNORECASE)
 
 
 def _zaisti_subor_vystavene(cesta: str):
-    """Vytvorí súbor odberateľských (vystavených) faktúr, ak ešte neexistuje.
-    Ak existuje, ale hlavička neobsahuje aktuálne stĺpce (napr. pribudli
-    „Zádržné krátkodobé/dlhodobé"), migruje ju  bez toho by nové riadky
-    (s viac hodnotami) padali pod nesprávne hlavičky, rovnako ako to
-    kedysi robil súbor prijatých faktúr pred _migruj_hlavicku_prijate."""
+    """
+    Creates the issued-invoices workbook if it does not exist yet. If it exists but its header lacks
+    the current columns (e.g. the new short- and long-term retention ones), the header is migrated;
+    otherwise new rows (with more values) would land under the wrong headers, as the
+    received-invoices workbook once did before _migruj_hlavicku_prijate.
+    """
     titulok = f"TDS s.r.o. - odberateľské faktúry - r. {datetime.now().year}"
     if not os.path.exists(cesta):
         os.makedirs(os.path.dirname(cesta), exist_ok=True)
@@ -221,15 +217,14 @@ def _zaisti_subor_vystavene(cesta: str):
 
 
 def _zaisti_subor_prijate(cesta: str):
-    """Vytvorí súbor dodávateľských (prijatých) faktúr s hárkami Tuzemské a
-    Zahraničné, ak ešte neexistuje. Ak súbor existuje, ale chýba mu niektorý
-    z hárkov, doplní ho. Ak niektorý hárok má zastaraný layout hlavičky
-    (napr. Tuzemské pred rozšírením o „Číslo fa - naše", „Dátum prijatia",
-    „Dodávateľ" na začiatku), migruje hlavičku na aktuálny  bez tejto
-    migrácie by dáta zapisované novým kódom (14 stĺpcov) padali do buniek
-    pod nesprávnymi hlavičkami zo starého layoutu (11 stĺpcov), takže
-    „Číslo fa - naše" by sa v Exceli tvárilo ako „Číslo faktúry“, dátum
-    prijatia ako suma bez DPH atď."""
+    """
+    Creates the received-invoices workbook with the Tuzemské and Zahraničné sheets if it does not
+    exist yet. If the file exists but a sheet is missing, it is added. If a sheet has an outdated
+    header layout (e.g. Tuzemské before "Číslo fa - naše", "Dátum prijatia" and "Dodávateľ" were
+    added at the start), the header is migrated. Without that, data written by the new code (14
+    columns) would land under the old layout's headers (11 columns): "Číslo fa - naše" would show up
+    as "Číslo faktúry", the date received as the net amount, and so on.
+    """
     rok = datetime.now().year
     titulky = {
         HAROK_TUZEMSKE: f"TDS s.r.o. - tuzemské dodávateľské faktúry - r. {rok} (DF0000/RR)",
@@ -263,42 +258,39 @@ def _zaisti_subor_prijate(cesta: str):
 
 def _migruj_hlavicku_prijate(ws, stlpce: list, titulok: str,
                              farba_hlavicky: str = _FARBA_HLAVICKA_PRIJATA) -> bool:
-    """Zosúladí riadok 2 hárku s aktuálnym zoznamom „stlpce". Migrácia je
-    BEZPEČNÁ voči existujúcej firemnej tabuľke:
+    """
+    Brings row 2 of the sheet in line with the current list "stlpce". The migration is SAFE for the
+    company's existing workbook:
 
-      • Ak sa existujúce hlavičky ZHODUJÚ s očakávanými (po strip-e
-        okrajových medzier, veľkosť písmen ignorovaná), NIČ sa neprepíše
-         zachová sa presné znenie firemnej hlavičky (vrátane trailing
-        spaces, ak tam sú). Vráti False.
+      - If the existing headers MATCH the expected ones (after stripping surrounding spaces,
+        ignoring case), NOTHING is overwritten: the exact wording of the company header (trailing
+        spaces included) is kept. Returns False.
 
-      • Ak sa niektorá existujúca hlavička LÍŠI od očakávanej (nezhoduje
-        sa ani po strip-e), migrácia sa PRERUŠÍ s výnimkou. Bez tejto
-        poistky by sa firemná hlavička prepísala na moju verziu a
-        používateľ by mohol prísť o vlastný text hlavičiek.
+      - If an existing header DIFFERS from the expected one (even after stripping), the migration
+        STOPS with an exception. Without this, the company's header would be replaced by mine and
+        the user could lose their own header texts.
 
-      • Ak očakávaných je VIAC ako existujúcich (rozšírenie o nové
-        stĺpce na konci  napr. pridané Zádržné), doplnia sa IBA nové
-        stĺpce na konci, existujúce ostanú nedotknuté. Titulok riadku 1
-        sa neprepisuje (firemný titulok zostáva). Autofilter sa rozšíri
-        aby pokryl aj nové stĺpce. Vráti True.
+      - If there are MORE expected columns than existing ones (new columns at the end, e.g.
+        retention), ONLY the new columns are added; existing ones stay untouched. The title in row 1
+        is not overwritten (the company title stays). The autofilter is extended to cover the new
+        columns. Returns True.
 
-    Neopravuje sa poloha dát v riadkoch 3+  aktuálny kód zapisuje presný
-    počet hodnôt zodpovedajúci aktuálnemu layoutu, takže existujúce dátové
-    riadky sú v správnych bunkách. Pri rozšírení layoutu ostanú staré
-    dátové riadky s prázdnymi novými bunkami  používateľ ich doplní
-    ručne v Exceli."""
+    Data in rows 3+ is not moved: the current code writes exactly as many values as the current
+    layout has, so existing data rows are in the right cells. When the layout grows, old data rows
+    keep empty new cells; the user fills them in Excel.
+    """
     aktualne = [ws.cell(row=RIADOK_HLAVICKA, column=i).value
                 for i in range(1, len(stlpce) + 1)]
 
     def _norm(x):
         return str(x or "").strip().lower()
 
-    # Overenie zhody existujúcich hlavičiek (do minimálnej dĺžky)
+    # Check that the existing headers match (up to the shorter length)
     minlen = min(len(aktualne), len(stlpce))
     for i in range(minlen):
         if aktualne[i] is None:
-            # Existuje očakávaný stĺpec, ale firemná bunka je prázdna
-             # doplníme ju (je to prvé nastavenie novej pozície)
+            # An expected column exists but the company cell is empty
+             # fill it in (first setup of the new position)
             continue
         if _norm(aktualne[i]) != _norm(stlpce[i]):
             raise ValueError(
@@ -308,7 +300,7 @@ def _migruj_hlavicku_prijate(ws, stlpce: list, titulok: str,
                 f"Migrácia zastavená, aby sa firemná hlavička neprepísala."
                 f" Ak je toto zámerná zmena, upravte STLPCE_* v excel_manager.py.")
 
-    # Doplň chýbajúce alebo prázdne bunky v hlavičke
+    # Fill missing or empty header cells
     zmena = False
     for i, popis in enumerate(stlpce, 1):
         bunka = ws.cell(row=RIADOK_HLAVICKA, column=i)
@@ -324,12 +316,11 @@ def _migruj_hlavicku_prijate(ws, stlpce: list, titulok: str,
     if not zmena:
         return False
 
-    # Firemný titulok (riadok 1) ZÁMERNE neprepisujeme  ostáva pôvodný.
-    # Rovnako farbu/font existujúcich hlavičiek nemeníme  iba nové bunky
-    # dostali plnú formáciu vyššie.
+    # The company title (row 1) is DELIBERATELY left as it is. The colour and font of existing
+    # headers are not changed either; only the new cells got full formatting above.
 
-    # Autofilter musí pokrývať aj novopridané stĺpce, inak by drop-downy
-    # nefungovali na „Zádržné krátkodobé" atď.
+    # The autofilter must cover the new columns too, otherwise the drop-downs would not work on
+    # "Zádržné krátkodobé" etc.
     posledny_stlpec = get_column_letter(len(stlpce))
     posledny_riadok = max(ws.max_row, RIADOK_HLAVICKA)
     ws.auto_filter.ref = f"A{RIADOK_HLAVICKA}:{posledny_stlpec}{posledny_riadok}"
@@ -338,7 +329,7 @@ def _migruj_hlavicku_prijate(ws, stlpce: list, titulok: str,
 
 
 def _zaisti_subor_zaloha(cesta: str):
-    """Vytvorí záložnú tabuľku (jednoduchá, bez titulku), ak ešte neexistuje."""
+    """Creates the staging workbook (simple, no title) if it does not exist yet."""
     if os.path.exists(cesta):
         return
     os.makedirs(os.path.dirname(cesta), exist_ok=True)
@@ -357,8 +348,10 @@ def _zaisti_subor_zaloha(cesta: str):
 
 def _priprav_harok(ws, stlpce: list, nazov_harku: str, titulok: str,
                    farba_titulku: str, farba_hlavicky: str):
-    """Pripraví hárok s riadkom titulku (1) a riadkom hlavičky (2), farbami
-    a filtrom  presne podľa vzoru reálnych tabuliek TDS s.r.o."""
+    """
+    Prepares a sheet with a title row (1) and a header row (2), colours and a filter, exactly like
+    TDS s.r.o.'s real workbooks.
+    """
     ws.title = nazov_harku
 
     ws.cell(row=RIADOK_TITULOK, column=1, value=titulok)
@@ -385,19 +378,19 @@ def _priprav_harok(ws, stlpce: list, nazov_harku: str, titulok: str,
 
 
 def _rozsir_filter(ws, pocet_stlpcov: int):
-    """Po pridaní riadku rozšíri rozsah automatického filtra na aktuálne dáta."""
+    """After a row is added, extends the autofilter range to the current data."""
     posledny_stlpec = get_column_letter(pocet_stlpcov)
     ws.auto_filter.ref = f"A{RIADOK_HLAVICKA}:{posledny_stlpec}{ws.max_row}"
 
 
 def _kluc_cisla_faktury(v):
-    """Porovnávací kľúč pre triedenie čísel faktúr. Číselné hodnoty sa
-    porovnávajú ako čísla (aby „9" < „10"), textové ako reťazce. Aby sa
-    dva typy vzájomne porovnali, vraciame tuple (skupina, hodnota):
-    skupina 0 = číslo, skupina 1 = text  vzniknuté poradie: najprv
-    všetky čísla zoradené vzostupne, potom všetky texty zoradené abecedne."""
+    """
+    Sort key for invoice numbers. Numeric values compare as numbers (so "9" < "10"), text as
+    strings. So both kinds can be compared, the key is a tuple (group, value): group 0 = number,
+    group 1 = text. The result: all numbers in ascending order, then all texts alphabetically.
+    """
     if v is None or v == "":
-        return (2, "")  # prázdne až úplne na koniec
+        return (2, "")  # empty ones last
     try:
         return (0, int(str(v).strip()))
     except (ValueError, TypeError):
@@ -406,10 +399,11 @@ def _kluc_cisla_faktury(v):
 
 def _najdi_zoradenu_poziciu(ws, hodnota, first_row: int, last_row: int,
                              stlpec: int = 1) -> int:
-    """Nájde riadok, PRED ktorý sa má vložiť nový záznam s hodnotou
-    'hodnota' v 'stlpec' (typicky Číslo faktúry v stĺpci A), aby dáta
-    ostali zoradené vzostupne. Ak nová hodnota je väčšia než všetky
-    existujúce, vráti last_row + 1 (append na koniec)."""
+    """
+    Finds the row BEFORE which a new record with 'hodnota' in 'stlpec' (usually Číslo faktúry in
+    column A) should be inserted, so the data stays in ascending order. If the new value is larger
+    than all existing ones, returns last_row + 1 (append at the end).
+    """
     novy_kluc = _kluc_cisla_faktury(hodnota)
     for r in range(first_row, last_row + 1):
         v = ws.cell(row=r, column=stlpec).value
@@ -421,26 +415,22 @@ def _najdi_zoradenu_poziciu(ws, hodnota, first_row: int, last_row: int,
 
 
 def _prvy_prazdny_riadok(ws, stlpec: int = 1, min_row: int = PRVY_RIADOK_DAT) -> int:
-    """Nájde ďalší voľný riadok pod poslednou skutočnou dátovou hodnotou
-    v stĺpci 'stlpec' (1-indexované; predvolene stĺpec A). Iteruje ZVRCHU
-    a zastaví po >100 po sebe idúcich prázdnych riadkoch  predpoklad:
-    reálne dáta sú v súvislej sekvencii, prípadné menšie medzery <=100
-    riadkov sa ignorujú.
+    """
+    Finds the next free row below the last real value in column 'stlpec' (1-indexed; column A by
+    default). Iterates FROM THE TOP and stops after more than 100 empty rows in a row, assuming the
+    real data is contiguous; smaller gaps of up to 100 rows are ignored.
 
-    Prečo TENTO helper a nie ws.max_row + 1: openpyxl reportuje ws.max_row
-    podľa deklarovaného rozsahu v XML (dimension.ref). Ak vo firemnom Exceli
-    niekto aplikoval formátovanie alebo vzorec na celý stĺpec (napr. „vyber
-    stĺpec K → aplikuj format € na všetko"), max_row môže vystreliť až na
-    1 048 576 (Excel-ov hard limit), zatiaľ čo reálne sú tam len stovky
-    riadkov. ws.append(list) potom padne s
-      „Row numbers must be between 1 and 1048576. Row number supplied was 1048577".
-    Tento helper vráti reálny nasledujúci prázdny riadok bez ohľadu na max_row.
+    Why this helper and not ws.max_row + 1: openpyxl reports ws.max_row from the range declared in
+    the XML (dimension.ref). If someone formatted a whole column in the company workbook ("select
+    column K, apply € format to everything"), max_row can jump to 1,048,576 (Excel's hard limit)
+    while there are really only a few hundred rows. ws.append(list) then fails with
+      "Row numbers must be between 1 and 1048576. Row number supplied was 1048577".
+    This helper returns the real next empty row regardless of max_row.
     """
     posledny_datovy = min_row - 1
     consecutive_empty = 0
-    # Cap na 200 000 riadkov  bezpečná horná hranica; žiadna firemná
-    # tabuľka faktúr sa reálne k tomu ani zďaleka nepribližuje. Zaručí,
-    # že cyklus neuviazne pri patologicky nastavenom max_row.
+    # Capped at 200,000 rows: a safe upper bound that no company invoice workbook comes anywhere
+    # near. It keeps the loop from running away on a pathological max_row.
     max_scan = min(ws.max_row or min_row, 200000)
     for r in range(min_row, max_scan + 1):
         val = ws.cell(row=r, column=stlpec).value
@@ -455,7 +445,7 @@ def _prvy_prazdny_riadok(ws, stlpec: int = 1, min_row: int = PRVY_RIADOK_DAT) ->
 
 
 def _cislo(hodnota):
-    """Prevedie textovú sumu ('2942.00') na float pre správne uloženie v Exceli."""
+    """Converts a text amount ('2942.00') to a float so Excel stores it correctly."""
     try:
         return float(str(hodnota).replace(",", "."))
     except (TypeError, ValueError):
@@ -463,7 +453,7 @@ def _cislo(hodnota):
 
 
 def _datum(hodnota):
-    """Prevedie dátum vo formáte DD.MM.RRRR (text) na skutočný dátum pre Excel."""
+    """Converts a DD.MM.YYYY text date to a real date for Excel."""
     try:
         return datetime.strptime(str(hodnota).strip(), "%d.%m.%Y").date()
     except (TypeError, ValueError):
@@ -476,28 +466,27 @@ class ExcelManager:
         _zaisti_subor_zaloha(konfig["subor_zaloha"])
         _zaisti_subor_vystavene(konfig["subor_vystavene"])
         _zaisti_subor_prijate(konfig["subor_prijate"])
-        # voliteľná zrkadlová kópia prijatých faktúr pre skladníkov
+        # optional mirror copy of received invoices for the warehouse staff
         if konfig.get("subor_pre_skladnikov"):
             _zaisti_subor_prijate(konfig["subor_pre_skladnikov"])
 
-    # ------------------------------------------------------------ záloha
+    # ------------------------------------------------------------ staging
 
     def pridaj_do_zalohy(self, data: dict, pdf_subor: str) -> str:
-        """Zapíše extrahované údaje do záložnej tabuľky. Vráti ID záznamu.
+        """
+        Writes the extracted data to the staging workbook. Returns the record ID.
 
-        Pri prijatej faktúre, ktorej jazyk sa už podarilo určiť (SK/iný),
-        sa hneď REZERVUJE aj interné referenčné číslo TDS (stĺpec „Číslo
-        fa - naše", tvar DF/zDF NNNN/RR, pozri _rezervuj_cislo_archivu),
-        aby bolo vidno v tabuľke ešte pred schválením. Samotný PDF súbor sa
-        premenuje na „Číslo fa - naše" až pri schválení
-        (_premenuj_archivovane_pdf)  tu sa číslo iba zapíše do zálohy, aby
-        ho žiadna iná súčasne čakajúca faktúra nedostala tiež.
+        For a received invoice whose language is already known (SK/other), TDS's internal reference
+        number is RESERVED right away (column "Číslo fa - naše", form DF/zDF NNNN/YY, see
+        _rezervuj_cislo_archivu), so it is visible in the table before approval. The PDF itself is
+        renamed to "Číslo fa - naše" only on approval (_premenuj_archivovane_pdf); here the number
+        is only written to staging so no other pending invoice gets it too.
 
-        „Číslo faktúry" ostáva skutočné číslo faktúry dodávateľa (z extrakcie)
-        pri OBOCH typoch (Tuzemské aj Zahraničné). Obe záložky teraz zdieľajú
-        rovnaký plný layout so samostatným stĺpcom „Číslo fa - naše" (interné
-        DF/zDF referenčné číslo TDS) POPRI stĺpci „Číslo faktúry" (skutočné
-        číslo od dodávateľa), takže sa nikde neprepisuje ani nezlučuje."""
+        "Číslo faktúry" stays the supplier's real invoice number (from extraction) for BOTH kinds
+        (domestic and foreign). Both sheets now share the same full layout with a separate "Číslo fa
+        - naše" column (TDS's internal DF/zDF number) NEXT TO "Číslo faktúry" (the supplier's real
+        number), so nothing is overwritten or merged.
+        """
         id_zaznamu = uuid.uuid4().hex[:8].upper()
         wb = load_workbook(self.k["subor_zaloha"])
         ws = wb.active
@@ -508,13 +497,12 @@ class ExcelManager:
         cislo_fa_nase = ""
         if typ == "Prijatá" and jazyk in ("SK", "iny"):
             cislo_fa_nase = self._rezervuj_cislo_archivu(ws, jazyk)
-            # „Číslo faktúry" ostáva SKUTOČNÉ číslo faktúry dodávateľa
-            # (z extrakcie), aj pri tuzemských (SK) faktúrach  interné
-            # referenčné číslo TDS je vedené osobitne v „Číslo fa - naše"
-            # (DF NNNN/RR). Predtým sa pri tuzemských cislo_faktury
-            # prepisovalo hodnotou DF, kvôli zjednodušenému layoutu bez
-            # samostatného stĺpca; teraz má aj Tuzemské plný layout, takže
-            # sa oba údaje zobrazujú vedľa seba a nie je dôvod ich zlúčiť.
+            # "Číslo faktúry" stays the supplier's REAL invoice number (from extraction), for
+            # domestic (SK) invoices too; TDS's internal reference number is kept separately in
+            # "Číslo fa - naše" (DF NNNN/YY). For domestic invoices cislo_faktury used to be
+            # overwritten with the DF number because of a simplified layout without a separate
+            # column; now the domestic sheet has the full layout too, so both are shown side by side
+            # and there is no reason to merge them.
 
         ws.append([
             id_zaznamu,
@@ -543,16 +531,16 @@ class ExcelManager:
             STAV_CAKA,
             datetime.now().strftime("%d.%m.%Y %H:%M"),
             cislo_fa_nase,
-            data.get("zadrzne_kratkodobe", ""),        # dátum, ručne cez „Upraviť"
-            data.get("zadrzne_dlhodobe", ""),          # dátum, ručne cez „Upraviť"
-            data.get("zadrzne_kratkodobe_suma", ""),   # suma €, ručne cez „Upraviť"
-            data.get("zadrzne_dlhodobe_suma", ""),     # suma €, ručne cez „Upraviť"
+            data.get("zadrzne_kratkodobe", ""),        # date, entered by hand via "Upraviť"
+            data.get("zadrzne_dlhodobe", ""),          # date, entered by hand via "Upraviť"
+            data.get("zadrzne_kratkodobe_suma", ""),   # amount in €, entered by hand via "Upraviť"
+            data.get("zadrzne_dlhodobe_suma", ""),     # amount in €, entered by hand via "Upraviť"
         ])
         wb.save(self.k["subor_zaloha"])
         return id_zaznamu
 
     def nacitaj_zalohu(self, len_cakajuce: bool = True) -> list:
-        """Vráti zoznam slovníkov zo záložnej tabuľky."""
+        """Returns a list of dicts from the staging workbook."""
         wb = load_workbook(self.k["subor_zaloha"], read_only=True)
         ws = wb.active
         riadky = []
@@ -571,7 +559,7 @@ class ExcelManager:
         return riadky
 
     def uprav_zaznam(self, id_zaznamu: str, nove_hodnoty: dict):
-        """Prepíše hodnoty riadku v záložnej tabuľke (podľa ID)."""
+        """Overwrites the values of a row in the staging workbook (by ID)."""
         wb = load_workbook(self.k["subor_zaloha"])
         ws = wb.active
         for riadok in ws.iter_rows(min_row=2):
@@ -585,23 +573,20 @@ class ExcelManager:
     def _nastav_stav(self, id_zaznamu: str, stav: str):
         self.uprav_zaznam(id_zaznamu, {"Stav": stav})
 
-    # ------------------------------------------------------------ schválenie
+    # ------------------------------------------------------------ approval
 
     def schval(self, id_zaznamu: str, kopia_skladnikom: bool = True) -> dict:
         """
-        Zapíše záznam zo zálohy do príslušnej hlavnej tabuľky (podľa Typu,
-        pri prijatých aj podľa Jazyka) a v zálohe ho označí ako 'Schválené'.
-        Vráti schválený záznam (doplnený o 'Číslo fa - naše' pri prijatých).
+        Writes a staging record to the right main workbook (by type, and for received invoices also
+        by language) and marks it 'Schválené' (approved) in staging. Returns the approved record
+        (with 'Číslo fa - naše' for received invoices).
 
-        Pred akoukoľvek úpravou tabuľky sa najprv overí, že samotné PDF
-        stále existuje na uvedenej ceste  bez tohto pre-checku by mohla
-        faktúra bez PDF podliezť do hlavnej tabuľky (a v zálohe by sa
-        označila ako Schválené), zatiaľ čo archivácia by potichu zlyhala
-        a súbor by v priecinok_faktury / priecinok_faktury_pre_skladnikov
-        vôbec nevznikol. Predtým sa to stávalo, keď medzi nahratím a
-        schválením niekto/niečo súbor v priecinok_invoices vymazalo
-        alebo presunulo  používateľ potom mal v Exceli riadok bez
-        zdrojového PDF a nevedel o tom, kým si to nevšimol vizuálne.
+        Before touching any workbook it checks that the PDF still exists at its path. Without this
+        check an invoice without its PDF could slip into the main workbook (and be marked approved
+        in staging) while archiving failed silently and no file appeared in priecinok_faktury /
+        priecinok_faktury_pre_skladnikov. That used to happen when someone or something deleted or
+        moved the file in priecinok_invoices between upload and approval; the user then had a row in
+        Excel with no source PDF and did not know until they noticed it.
         """
         zaznam = None
         for z in self.nacitaj_zalohu(len_cakajuce=False):
@@ -619,10 +604,9 @@ class ExcelManager:
                 "Pred schválením nastavte jazyk faktúry (SK / iný) cez „Upraviť“ "
                 "(rozhoduje, či ide do hárku Tuzemské alebo Zahraničné).")
 
-        # Overenie zdrojového PDF PRED zápisom do hlavnej tabuľky. Ak
-        # súbor neexistuje, celé schválenie sa preruší a v zálohe zostane
-        # záznam ako „Čaká na schválenie" (žiadny polovičný zápis do
-        # hlavnej tabuľky, žiadna archivácia bez PDF).
+        # Check the source PDF BEFORE writing to the main workbook. If the file does not exist, the
+        # whole approval stops and the record stays "Čaká na schválenie" (pending) in staging: no
+        # half-written row in the main workbook, no archiving without a PDF.
         pdf_cesta = zaznam.get("PDF súbor", "")
         if not pdf_cesta or not os.path.exists(pdf_cesta):
             raise ValueError(
@@ -635,19 +619,17 @@ class ExcelManager:
 
         if zaznam["Typ"] == "Vystavená":
             self._pridaj_vystavenu(zaznam)
-            # Vystavené faktúry sa archivujú do priecinok_faktury pod
-            # PÔVODNÝM názvom (bez premenovania na DF/zDF, keďže tie
-            # interné čísla sa pri vlastných vystavených faktúrach
-            # nepoužívajú)  pôvodný súbor sa z priečinka nahrávania
-            # („scan" priecinok_invoices) odstráni tak isto ako pri
-            # prijatých. Používateľ tak nemusí manuálne mazať priečinok
-            # skenera a všetky archivované faktúry (Prijaté aj Vystavené)
-            # sú pohromade v priecinok_faktury.
+            # Issued invoices are archived to priecinok_faktury under their ORIGINAL name (not
+            # renamed to DF/zDF, since those internal numbers are not used for our own issued
+            # invoices). The original file is removed from the upload folder (the "scan" folder
+            # priecinok_invoices) just like for received invoices, so the user does not have to
+            # clean out the scanner folder by hand and all archived invoices (received and issued)
+            # are together in priecinok_faktury.
             self._archivuj_povodnym_nazvom(zaznam, id_zaznamu)
         else:
-            # „Číslo fa - naše" je už na zázname (pridelené pri nahratí,
-            # pozri pridaj_do_zalohy)  _pridaj_prijatu ho len zapíše do
-            # hlavnej tabuľky, nemá sa tu prepisovať jeho návratovou hodnotou.
+            # "Číslo fa - naše" is already on the record (assigned on upload, see pridaj_do_zalohy);
+            # _pridaj_prijatu only writes it to the main workbook, so it must not be overwritten
+            # here with its return value.
             self._pridaj_prijatu(zaznam)
             self._premenuj_archivovane_pdf(zaznam, id_zaznamu,
                                             kopia_skladnikom=kopia_skladnikom)
@@ -657,35 +639,29 @@ class ExcelManager:
 
     def _pridaj_vystavenu(self, zaznam: dict):
         wb = load_workbook(self.k["subor_vystavene"])
-        # Hárok VYBERÁME MENOM  firemný OF Excel má viac hárkov (napr.
-        # „Odoslané faktúry - tuzemské", „Predfaktúry", „zOF").
-        # wb.active by mohol vrátiť ktorýkoľvek z nich (podľa toho, ktorý
-        # bol pri poslednom uložení aktívny). Explicitným výberom podľa
-        # HAROK_VYSTAVENA_TUZEMSKE máme istotu, že vystavené faktúry vždy
-        # skončia v správnom hárku.
+        # The sheet is selected BY NAME: the company's OF workbook has several sheets ("Odoslané
+        # faktúry - tuzemské", "Predfaktúry", "zOF"), and wb.active could return any of them
+        # (whichever was active at the last save). Selecting HAROK_VYSTAVENA_TUZEMSKE explicitly
+        # makes sure issued invoices always end up in the right sheet.
         if HAROK_VYSTAVENA_TUZEMSKE not in wb.sheetnames:
             raise ValueError(
                 f"V súbore vystavených faktúr chýba hárok "
                 f"'{HAROK_VYSTAVENA_TUZEMSKE}'.")
         ws = wb[HAROK_VYSTAVENA_TUZEMSKE]
 
-        # Skutočný najbližší voľný riadok  ws.max_row môže byť inflatnutý
-        # na 1 048 576 vo firemných excelh so stĺpcovým formátovaním;
-        # ws.append(...) by potom zlyhal chybou „Row numbers must be
+        # The real next free row: ws.max_row can be inflated to 1,048,576 in company workbooks with
+        # whole-column formatting, and ws.append(...) would then fail with "Row numbers must be
         # between 1 and 1048576. Row number supplied was 1048577".
         posledny_dat = _prvy_prazdny_riadok(ws) - 1
 
-        # Vystavené faktúry sa vkladajú v ZORADENOM poradí podľa Čísla
-        # faktúry (vzostupne, číselne). Keby sa iba appendovalo na koniec,
-        # nahranie faktúry so starším/nižším číslom (napr. dodatočné
-        # doplnenie chýbajúcej faktúry) by ju umiestnilo na spodok tabuľky
-        # medzi vyššie čísla  poradie by prestalo byť monotónne. Preto
-        # nájdeme presnú pozíciu, kam nová faktúra patrí:
-        #   • ak je nové číslo VÄČŠIE než všetky existujúce  append (fast path)
-        #   • inak  insert_rows + posun existujúcich riadkov + zapíš na
-        #     uvoľnenú pozíciu + preadresuj Zostatok formuly v posunutých
-        #     riadkoch (=D{r}-H{r} musí zodpovedať novému riadku, openpyxl
-        #     ich pri insert_rows sám neaktualizuje).
+        # Issued invoices are inserted in SORTED order by invoice number (ascending, numeric). If
+        # they were only appended, uploading an invoice with an older, lower number (e.g. adding a
+        # missing one later) would put it at the bottom among higher numbers and the order would no
+        # longer be monotonic. So the exact position is found:
+        #   - if the new number is LARGER than all existing ones: append (fast path)
+        #   - otherwise: insert_rows, shifting the existing rows down, write into the freed row, and
+        # readdress the Zostatok formulas in the shifted rows (=D{r}-H{r} must point to the new row;
+        # openpyxl does not update them on insert_rows).
         insert_row = _najdi_zoradenu_poziciu(
             ws, zaznam["Číslo faktúry"], PRVY_RIADOK_DAT, posledny_dat)
 
@@ -694,11 +670,12 @@ class ExcelManager:
             zaznam["Odberateľ"],                                  # 2
             _cislo(zaznam["Suma bez DPH"]),                       # 3
             _cislo(zaznam["Suma s DPH"]),                         # 4
-            _datum(zaznam["Dátum dodania"]),                      # 5: Zdaniteľné plnenie
-            _datum(zaznam["Dátum splatnosti"]),                   # 6: Splatnosť
-            None,                                                  # 7: Úhrada - dátum
-            None,                                                  # 8: Úhrada - suma
-            None,                                                  # 9: Zostatok (vzorec nižšie)
+            _datum(zaznam["Dátum dodania"]),                      # 5: taxable supply date
+            _datum(zaznam["Dátum splatnosti"]),                   # 6: due date
+            None,                                                  # 7: payment date
+            None,                                                  # 8: payment amount
+            # 9: remaining balance (formula below)
+            None,
             zaznam.get("Zákazka", ""),                            # 10
             zaznam.get("Poznámka", ""),                           # 11
             _datum(zaznam.get("Zádržné krátkodobé", "")),         # 12
@@ -708,39 +685,35 @@ class ExcelManager:
         ]
 
         if insert_row > posledny_dat:
-            # Fast path: pripájame na koniec, žiadny posun ani re-formuly
+            # Fast path: append at the end, no shifting, no formula fixes
             riadok = insert_row
             ws._current_row = riadok - 1
             ws.append(data)
         else:
-            # Insert path: posunieme existujúce riadky nadol a zapíšeme
-            # nové dáta bunku po bunke (append by nefungoval, lebo tam
-            # bunky teraz existujú po insert_rows).
+            # Insert path: shift the existing rows down and write the new data cell by cell (append
+            # would not work, because the cells exist after insert_rows).
             ws.insert_rows(insert_row, 1)
             riadok = insert_row
             for col_idx, val in enumerate(data, start=1):
                 ws.cell(row=riadok, column=col_idx, value=val)
-            # Preadresovanie Zostatok formúl (stĺpec 9) v POSUNUTÝCH
-            # riadkoch: openpyxl pri insert_rows posunie obsah buniek
-            # vrátane formúl, ale nezreviduje referencie vo formulách.
-            # Formula z pôvodného riadku 500 „=D500-H500" ostane textom
-            # „=D500-H500" v novom fyzickom riadku 501  ukazuje na
-            # cudzie dáta. Riešenie: pre všetky posunuté riadky (od
-            # riadok+1 po nový koniec) prepíšeme Zostatok formulu, aby
-            # ukazovala na svoj vlastný riadok.
+            # Readdress the Zostatok formulas (column 9) in the SHIFTED rows: insert_rows moves cell
+            # contents, formulas included, but does not update the references inside them. The
+            # formula "=D500-H500" from the old row 500 stays "=D500-H500" in its new row 501 and
+            # points at someone else's data. So every shifted row (from row+1 to the new end) gets
+            # its Zostatok formula rewritten to point at its own row.
             novy_koniec = _prvy_prazdny_riadok(ws) - 1
             for r in range(riadok + 1, novy_koniec + 1):
                 ws.cell(row=r, column=9).value = f"=D{r}-H{r}"
                 ws.cell(row=r, column=9).number_format = _FORMAT_ZOSTATOK
 
-        # Format nového riadku (rovnako pre append aj insert prípad)
+        # Format of the new row (same for append and insert)
         for stlpec in (3, 4):
             ws.cell(row=riadok, column=stlpec).number_format = _FORMAT_SUMA
         for stlpec in (5, 6, 7):
             ws.cell(row=riadok, column=stlpec).number_format = _FORMAT_DATUM
         ws.cell(row=riadok, column=9).value = f"=D{riadok}-H{riadok}"
         ws.cell(row=riadok, column=9).number_format = _FORMAT_ZOSTATOK
-        # Zádržné dátumy (12, 13) a sumy (14, 15)  vzorec formátu
+        # Retention dates (12, 13) and amounts (14, 15): number formats
         for stlpec in (12, 13):
             ws.cell(row=riadok, column=stlpec).number_format = _FORMAT_DATUM
         for stlpec in (14, 15):
@@ -755,30 +728,29 @@ class ExcelManager:
         harok_nazov = _HAROK_PODLA_JAZYKA[jazyk]
         wb = load_workbook(self.k["subor_prijate"])
         ws = wb[harok_nazov]
-        # Tuzemské aj Zahraničné zdieľajú rovnaký plný layout (Číslo fa - naše,
-        # Dátum prijatia, Dodávateľ, Číslo faktúry, sumy, dátumy, úhrada,
-        # zostatok, požiadavka, zákazka, poznámka).  „Číslo fa - naše"
-        # (DF/zDF NNNN/RR) sa prideľuje už pri nahratí (pozri
-        # _rezervuj_cislo_archivu), tu sa len prevezme z záznamu.
+        # Domestic and foreign share the same full layout (Číslo fa - naše, Dátum prijatia,
+        # Dodávateľ, Číslo faktúry, amounts, dates, payment, balance, payment request, job, note).
+        # "Číslo fa - naše" (DF/zDF NNNN/YY) is assigned on upload (see _rezervuj_cislo_archivu) and
+        # only copied from the record here.
         cislo_nase = zaznam["Číslo fa - naše"]
         riadok_data = [
-            cislo_nase,                                      # 1: Číslo fa - naše
-            datetime.now().date(),                            # 2: Dátum prijatia (faktúry)
-            zaznam["Dodávateľ"],                             # 3: Dodávateľ
-            zaznam["Číslo faktúry"],                         # 4: Číslo faktúry
+            cislo_nase,                                      # 1: our internal number
+            datetime.now().date(),                            # 2: date received
+            zaznam["Dodávateľ"],                             # 3: supplier
+            zaznam["Číslo faktúry"],                         # 4: invoice number
             _cislo(zaznam["Suma bez DPH"]),                  # 5: Suma bez DPH v €
             _cislo(zaznam["Suma s DPH"]),                    # 6: Suma s DPH v €
-            _datum(zaznam["Dátum dodania"]),                 # 7: Zdaniteľné plnenie
-            _datum(zaznam["Dátum splatnosti"]),              # 8: Splatnosť
-            None,                                             # 9: Úhrada - dátum
-            None,                                             # 10: Úhrada - suma
-            None,                                             # 11: Zostatok k úhrade (vzorec)
-            "",                                               # 12: Požiadavka na úhradu (ručne)
-            zaznam.get("Zákazka", ""),                       # 13: Zákazka
-            zaznam.get("Poznámka", ""),                      # 14: Poznámka
-            "",                                               # 15: Stav (U/Ú/prázdne  ručne)
+            _datum(zaznam["Dátum dodania"]),                 # 7: taxable supply date
+            _datum(zaznam["Dátum splatnosti"]),              # 8: due date
+            None,                                             # 9: payment date
+            None,                                             # 10: payment amount
+            None,                                             # 11: remaining balance (formula)
+            "",                                               # 12: payment request (manual)
+            zaznam.get("Zákazka", ""),                       # 13: job
+            zaznam.get("Poznámka", ""),                      # 14: note
+            "",                                               # 15: status (U/Ú/empty, manual)
         ]
-        # Skutočný najbližší voľný riadok (viď komentár v _pridaj_vystavenu)
+        # The real next free row (see the comment in _pridaj_vystavenu)
         riadok = _prvy_prazdny_riadok(ws)
         ws._current_row = riadok - 1
         ws.append(riadok_data)
@@ -787,7 +759,7 @@ class ExcelManager:
             ws.cell(row=riadok, column=stlpec).number_format = _FORMAT_SUMA
         for stlpec in (7, 8, 9):
             ws.cell(row=riadok, column=stlpec).number_format = _FORMAT_DATUM
-        # Zostatok = Suma s DPH (col 6) - Úhrada suma (col 10)
+        # Balance = total with VAT (col 6) - payment amount (col 10)
         ws.cell(row=riadok, column=11).value = f"=F{riadok}-J{riadok}"
         ws.cell(row=riadok, column=11).number_format = _FORMAT_ZOSTATOK
         zvyraznenie = _ZVYRAZNENIE_PRIJATA_ZAHRANICNE
@@ -797,9 +769,9 @@ class ExcelManager:
         _rozsir_filter(ws, len(STLPCE_PRIJATA_ZAHRANICNE))
         wb.save(self.k["subor_prijate"])
 
-        # Zrkadlová kópia pre skladníkov (ten istý riadok, bez vzorcov ani
-        # farebného zvýraznenia  ide len o informačný prehľad)  ak je
-        # nakonfigurovaná. Platí pre OBE záložky (Tuzemské aj Zahraničné).
+        # Mirror copy for the warehouse staff (the same row, without formulas or colour
+        # highlighting; it is only an overview), if configured. Applies to BOTH sheets (domestic and
+        # foreign).
         skladnikov_subor = self.k.get("subor_pre_skladnikov")
         if skladnikov_subor:
             self._pridaj_riadok_pre_skladnikov(skladnikov_subor, harok_nazov, riadok_data)
@@ -808,11 +780,12 @@ class ExcelManager:
         return cislo_nase
 
     def _pridaj_riadok_pre_skladnikov(self, cesta: str, harok_nazov: str, riadok_data: list):
-        """Pridá ten istý riadok, ktorý práve pribudol do hlavnej tabuľky
-        prijatých faktúr, aj do (voliteľnej) zrkadlovej kópie pre
-        skladníkov  jednoduchý informačný prehľad, bez vzorcov/farieb.
-        Súbor aj chýbajúci hárok sa v prípade potreby vytvoria rovnako
-        ako v hlavnej tabuľke (_zaisti_subor_prijate)."""
+        """
+        Adds the row that was just added to the main received-invoices workbook to the (optional)
+        mirror copy for the warehouse staff as well: a simple overview, no formulas or colours. The
+        file and a missing sheet are created if needed, as for the main workbook
+        (_zaisti_subor_prijate).
+        """
         if not os.path.exists(cesta):
             _zaisti_subor_prijate(cesta)
         wb = load_workbook(cesta)
@@ -825,48 +798,42 @@ class ExcelManager:
 
     def _rezervuj_cislo_archivu(self, ws_zaloha, jazyk: str) -> str:
         """
-        Vráti ďalšie (ešte nikým nepoužité) interné referenčné číslo TDS
-        v tvare DF NNNN/RR (tuzemské) / zDF NNNN/RR (zahraničné) pre novú
-        prijatú faktúru  presne formát, akým TDS už roky čísluje prijaté
-        faktúry vo svojej reálnej evidencii (napr. „DF0759/26", „zDF0076/26").
-        Zapíše sa do stĺpca „Číslo fa - naše"  volá sa hneď pri NAHRATÍ
-        (pridaj_do_zalohy), nie až pri schválení, aby bolo vidno v tabuľke
-        ešte pred schválením. Samotné premenovanie PDF súboru na tento už
-        pridelený názov prebehne až pri schválení (_premenuj_archivovane_pdf).
+        Returns the next unused TDS internal reference number, DF NNNN/YY (domestic) or zDF NNNN/YY
+        (foreign), for a new received invoice: exactly the format TDS has used in its records for
+        years ("DF0759/26", "zDF0076/26"). It goes into the "Číslo fa - naše" column and is assigned
+        on UPLOAD (pridaj_do_zalohy), not on approval, so it is visible in the table before
+        approval. The PDF is renamed to this number only on approval (_premenuj_archivovane_pdf).
 
-        HLAVNÁ TABUĽKA (subor_prijate) JE AUTORITA. Ďalšie číslo je vždy
-        o 1 vyššie než najvyššie číslo zapísané v nej  plus rezervácie
-        čakajúcich záznamov, aby si dve nahrané faktúry nesiahli na to isté.
-        Keď účtovníčka čísla v Exceli ručne opraví (typicky zatvorí medzeru,
-        ktorá vznikla zamietnutou faktúrou), aplikácia sa tým riadi a
-        pokračuje od jej opravy  nie od svojho pôvodného poradia.
+        THE MAIN WORKBOOK (subor_prijate) IS THE AUTHORITY. The next number is always one higher
+        than the highest number written in it, plus the reservations of pending records, so two
+        uploaded invoices never get the same one. When the accountant corrects numbers by hand in
+        Excel (typically closing a gap left by a rejected invoice), the app follows her correction
+        and continues from there, not from its own earlier sequence.
 
-        Hranicu tvoria:
-          • najvyššie DF/zDF číslo v hlavnej tabuľke pre daný jazyk
-          • čísla rezervované záznamami so stavom „Čaká na schválenie"
-          • archivacia_tuzemske_od / archivacia_zahranicne_od z configu
-            len ako spodná hranica, keď v tabuľke ešte nič nie je
+        The ceiling is made up of:
+          - the highest DF/zDF number in the main workbook for the language
+          - numbers reserved by records that are "Čaká na schválenie" (pending)
+          - archivacia_tuzemske_od / archivacia_zahranicne_od from the config, only as a floor while
+            the workbook is still empty
 
-        Hranicu ZÁMERNE NEZVYŠUJÚ:
-          • archívne PDF súbory  tie sa kontrolujú iba na kolíziu (nové
-            číslo nikdy neprepíše existujúci súbor). Keby hranicu zvyšovali,
-            zabetónovali by staré poradie: po ručnej oprave v Exceli by PDF
-            s vyšším názvom ťahalo číslovanie späť nahor a oprava by sa
-            ignorovala  presne to sa v praxi stalo.
-          • schválené záznamy v zaloha.xlsx (STAV_SCHVALENE)  ich číslo už
-            je v hlavnej tabuľke; ak ho tam účtovníčka zmenila, platí jej
-            hodnota, nie pôvodná rezervácia.
-          • zamietnuté záznamy  tie sa už vôbec nedostanú do zálohy (pri
-            zamietnutí sa okamžite úplne mažú aj s PDF súborom, pozri
-            zamietni / vymaz_zaznamy).
+        The ceiling is DELIBERATELY NOT raised by:
+          - archive PDF files: they are only checked for collisions (a new number never overwrites
+            an existing file). If they raised the ceiling, they would lock in the old order: after a
+            manual fix in Excel, a PDF with a higher name would pull the numbering back up and the
+            fix would be ignored, which is exactly what happened in practice.
+          - approved records in zaloha.xlsx (STAV_SCHVALENE): their number is already in the main
+            workbook; if the accountant changed it there, her value counts, not the original
+            reservation.
+          - rejected records: they never stay in staging (on rejection they are deleted at once, PDF
+            included, see zamietni / vymaz_zaznamy).
         """
         predpona = _PREDPONA[jazyk]
         rok2 = datetime.now().strftime("%y")
 
         hranica = self._horna_hranica_cisel(ws_zaloha, jazyk)
 
-        # Archívne PDF hranicu NEZVYŠUJÚ  slúžia len ako poistka, aby nové
-        # číslo nikdy neprepísalo už existujúci archívny súbor.
+        # Archive PDFs do NOT raise the ceiling; they only make sure a new number never overwrites
+        # an existing archive file.
         archiv = self._cisla_v_archive(jazyk)
         kandidat = hranica + 1
         while kandidat in archiv:
@@ -875,10 +842,11 @@ class ExcelManager:
         return f"{predpona}{kandidat:04d}/{rok2}"
 
     def _cisla_v_hlavnej_tabulke(self, jazyk: str) -> set:
-        """DF/zDF čísla zapísané v hlavnej tabuľke (subor_prijate) pre daný
-        jazyk. Toto je evidencia účtovníčky a zároveň autorita pre poradie.
-        Číta sa tolerantným vzorom, aby sa nestratili riadky s preklepom
-        v koncovke roka (napr. „DF0864/27") ani s medzerami navyše."""
+        """
+        DF/zDF numbers written in the main workbook (subor_prijate) for the given language. This is
+        the accountant's record and the authority for the sequence. Read with the tolerant pattern
+        so rows with a typo in the year ("DF0864/27") or extra spaces are not lost.
+        """
         cisla = set()
         subor_prijate = self.k.get("subor_prijate", "")
         harok_nazov = _HAROK_PODLA_JAZYKA.get(jazyk)
@@ -897,14 +865,15 @@ class ExcelManager:
                         cisla.add(int(m.group(1)))
             wb.close()
         except Exception:
-            # zamknutý/nedostupný súbor  nech rozhodnú ostatné zdroje
+            # file locked or unavailable: let the other sources decide
             pass
         return cisla
 
     def _cisla_v_archive(self, jazyk: str) -> set:
-        """DF/zDF čísla, pre ktoré v priecinok_faktury fyzicky existuje
-        archívny PDF súbor. Používa sa LEN na kolíziu (neprepísať existujúci
-        súbor), nie na určenie ďalšieho čísla."""
+        """
+        DF/zDF numbers for which an archive PDF physically exists in priecinok_faktury. Used ONLY
+        for collisions (never overwrite an existing file), not to choose the next number.
+        """
         cisla = set()
         priecinok = self.k.get("priecinok_faktury", "")
         if not (priecinok and os.path.isdir(priecinok)):
@@ -920,8 +889,10 @@ class ExcelManager:
         return cisla
 
     def _cisla_cakajucich(self, ws_zaloha, jazyk: str) -> set:
-        """Čísla, ktoré si už rezervovali záznamy čakajúce na schválenie
-        tie ešte nie sú v hlavnej tabuľke, ale kolidovať s nimi nesmieme."""
+        """
+        Numbers already reserved by records pending approval: not in the main workbook yet, but they
+        must not be reused.
+        """
         cisla = set()
         vzor = _vzor_cisla(_PREDPONA[jazyk])
         idx_cislo = STLPCE_ZALOHA.index("Číslo fa - naše")
@@ -939,9 +910,11 @@ class ExcelManager:
         return cisla
 
     def _horna_hranica_cisel(self, ws_zaloha, jazyk: str) -> int:
-        """Najvyššie už obsadené DF/zDF číslo, od ktorého sa pokračuje ďalej.
-        Autoritou je hlavná tabuľka; čakajúce rezervácie ju môžu posunúť
-        vyššie; config slúži len ako spodná hranica pre prázdnu tabuľku."""
+        """
+        The highest DF/zDF number already taken, to continue from. The main workbook is the
+        authority; pending reservations can push it higher; the config is only a floor for an empty
+        workbook.
+        """
         zaciatok = 0
         pociatok = self.k.get(_KONFIG_ARCHIVACIA_OD[jazyk]) or {}
         if pociatok.get("rok") == datetime.now().year:
@@ -952,21 +925,20 @@ class ExcelManager:
         kandidati.add(zaciatok)
         return max(kandidati)
 
-    # ------------------------------------------- zosúladenie archívu s Excelom
+    # ------------------------------------------- syncing the archive with Excel
 
     def _index_hlavnej_tabulky(self, jazyk: str) -> dict:
-        """Index hlavnej tabuľky na párovanie s archívom:
-        (číslo faktúry dodávateľa, suma s DPH) -> DF/zDF číslo.
+        """
+        Index of the main workbook for matching with the archive: (supplier's invoice number, total
+        with VAT) -> DF/zDF number.
 
-        Kľúč je zámerne „číslo faktúry + suma": samotné číslo faktúry
-        NESTAČÍ (viacerí dodávatelia používajú rovnaký reťazec, napr.
-        „10260027" alebo „2026005"), a pridanie dodávateľa naopak zhody
-        stráca, lebo jeho názov sa medzi zálohou a Excelom líši mestom.
-        Na reálnych dátach dáva dvojica 0 nejednoznačných zhôd.
+        The key is deliberately "invoice number + total": the invoice number alone is NOT enough
+        (several suppliers use the same string, e.g. "10260027" or "2026005"), and adding the
+        supplier loses matches, because its name differs between staging and Excel by the town. On
+        the real data the pair gives 0 ambiguous matches.
 
-        Dvojice, ktoré v tabuľke vychádzajú viackrát, sa z indexu VYRADIA
-        radšej faktúru nespárujeme (a necháme ju tak), než by sme
-        premenovali nesprávny súbor.
+        Pairs that occur more than once in the workbook are DROPPED from the index: better to leave
+        an invoice unmatched (and alone) than to rename the wrong file.
         """
         index, kolizie = {}, set()
         subor_prijate = self.k.get("subor_prijate", "")
@@ -998,23 +970,21 @@ class ExcelManager:
         return index
 
     def zisti_nesulad_archivu(self) -> list:
-        """Nájde faktúry, ktorých ARCHÍVNY PDF sa volá inak, než aké číslo
-        má daná faktúra v hlavnom Exceli  teda presne to, čo vznikne, keď
-        účtovníčka čísla v Exceli ručne prečísluje.
+        """
+        Finds invoices whose ARCHIVE PDF is named differently from the number the invoice has in the
+        main Excel workbook, which is exactly what happens when the accountant renumbers invoices by
+        hand in Excel.
 
-        Každá položka: {'id', 'jazyk', 'predpona', 'stare', 'nove',
-                        'dodavatel', 'cislo_faktury',
-                        'subory': [(priecinok, starý názov, nový názov)]}
+        Each item: {'id', 'jazyk', 'predpona', 'stare', 'nove', 'dodavatel', 'cislo_faktury',
+        'subory': [(folder, old name, new name)]}
 
-        Faktúra, ktorá sa nedá JEDNOZNAČNE spárovať s riadkom v Exceli, sa
-        ticho preskočí  nedotknúť sa jej je vždy bezpečnejšie než hádať.
+        An invoice that cannot be matched to an Excel row UNAMBIGUOUSLY is skipped silently: leaving
+        it alone is always safer than guessing.
 
-        Rovnako sa preskočí DVOJITO NAHRATÁ faktúra: keď sa tá istá faktúra
-        nahrá dvakrát, dostane dve čísla (napr. DF0859 a DF0877) a obe sa
-        spárujú na ten istý riadok Excelu. Druhé číslo tak vyzerá ako
-        „prečíslované", hoci prvé už na danom riadku sedí správne  jeho
-        premenovanie by prepísalo archív skutočnej faktúry. Preto sa cieľ,
-        ktorý už správne drží iný záznam, nikdy nepoužije.
+        An invoice UPLOADED TWICE is skipped too: it gets two numbers (e.g. DF0859 and DF0877) and
+        both match the same Excel row. The second number then looks "renumbered" although the first
+        already fits that row; renaming it would overwrite the archive copy of the real invoice. So
+        a target already held correctly by another record is never used.
         """
         indexy = {j: self._index_hlavnej_tabulky(j) for j in ("SK", "iny")}
         priecinky = [p for p in (self.k.get("priecinok_faktury"),
@@ -1022,10 +992,9 @@ class ExcelManager:
                      if p and os.path.isdir(p)]
         obsah = {p: os.listdir(p) for p in priecinky}
 
-        # 1. fáza  ku každému archivovanému záznamu zisti, aké číslo preň
-        # hovorí Excel
+        # Phase 1: for each archived record, find the number Excel has for it
         kandidati = []
-        sedia = set()            # (jazyk, číslo) už správne držané záznamom
+        sedia = set()            # (language, number) already held correctly by a record
         for z in self.nacitaj_zalohu(len_cakajuce=False):
             if z.get("Typ") != "Prijatá":
                 continue
@@ -1046,12 +1015,12 @@ class ExcelManager:
             else:
                 kandidati.append((z, jazyk, stare, nove))
 
-        # cieľ, o ktorý sa uchádzajú dvaja, je nejednoznačný  vynechaj oboch
+        # a target claimed by two records is ambiguous: skip both
         pocet_cielov = {}
         for _, jazyk, _, nove in kandidati:
             pocet_cielov[(jazyk, nove)] = pocet_cielov.get((jazyk, nove), 0) + 1
 
-        # 2. fáza  poskladaj plán premenovania
+        # Phase 2: build the renaming plan
         nesulad = []
         for z, jazyk, stare, nove in kandidati:
             if (jazyk, nove) in sedia or pocet_cielov[(jazyk, nove)] > 1:
@@ -1079,29 +1048,27 @@ class ExcelManager:
         return nesulad
 
     def zosulad_archiv_s_excelom(self, nesulad: list) -> dict:
-        """Premenuje archívne PDF podľa plánu z zisti_nesulad_archivu a
-        prečísluje zodpovedajúce záznamy v zálohe, aby tabuľka v aplikácii
-        ukazovala tie isté čísla ako Excel.
+        """
+        Renames archive PDFs according to the plan from zisti_nesulad_archivu and renumbers the
+        matching staging records, so the app's table shows the same numbers as Excel.
 
-        Premenovanie ide v DVOCH FÁZACH (najprv na dočasný názov, potom na
-        cieľový). Posuny tvoria reťaz (1048->1047, 1049->1048, ...), kde je
-        cieľ ešte obsadený predchodcom; dvojfázový postup zvládne aj
-        prehodenie dvoch čísel a nikdy neprepíše cudzí súbor.
+        Renaming happens in TWO PHASES (first to a temporary name, then to the target). The shifts
+        form a chain (1048->1047, 1049->1048, ...) where the target is still held by its
+        predecessor; the two-phase approach also handles swapping two numbers and never overwrites
+        someone else's file.
 
-        Vráti {'premenovanych': N, 'zaznamov': N, 'log': cesta,
-               'preskocene': [...], 'chyby': [...]}.
+        Returns {'premenovanych': N, 'zaznamov': N, 'log': path, 'preskocene': [...], 'chyby':
+        [...]}.
         """
         vysledok = {"premenovanych": 0, "zaznamov": 0, "log": "",
                     "preskocene": [], "chyby": []}
         if not nesulad:
             return vysledok
 
-        # Cieľ smie byť obsadený len súborom, ktorý sa sám presúva inam
-        # (posuny tvoria reťaz). Položku, ktorej cieľ drží cudzí súbor,
-        # VYNECHÁME  nezastavíme však celé zosúladenie, inak by jedna
-        # neriešiteľná faktúra navždy blokovala všetky ostatné opravy.
-        # Vynechanie môže zablokovať ďalšiu položku v reťazi, tak sa
-        # opakuje, kým sa výber neustáli.
+        # A target may only be held by a file that is itself moving elsewhere (the shifts form a
+        # chain). An item whose target is held by an unrelated file is SKIPPED, but the whole sync
+        # does not stop, or one unsolvable invoice would block all other fixes forever. Skipping one
+        # can block the next item in the chain, so this repeats until the selection settles.
         zostava = list(nesulad)
         while True:
             zdroje = {os.path.join(p, s)
@@ -1167,34 +1134,29 @@ class ExcelManager:
     def _premenuj_archivovane_pdf(self, zaznam: dict, id_zaznamu: str,
                                     kopia_skladnikom: bool = True):
         """
-        Premenované PDF prijatej (došlej) faktúry (nový názov odvodený od
-        „Číslo fa - naše"  interné referenčné číslo TDS, tvar DF/zDF NNNN/RR,
-        pridelené pri nahratí, pozri _rezervuj_cislo_archivu) sa skopíruje do
-        priecinok_faktury, a ak kopia_skladnikom == True, aj do
-        priecinok_faktury_pre_skladnikov. Až POTOM, keď sa POŽADOVANÉ kópie
-        podarí vytvoriť, sa pôvodný súbor z priečinka nahrávania
-        (priecinok_invoices) úplne odstráni.
+        The renamed PDF of a received invoice (the new name comes from "Číslo fa - naše", TDS's
+        internal reference number DF/zDF NNNN/YY assigned on upload, see _rezervuj_cislo_archivu) is
+        copied to priecinok_faktury and, if kopia_skladnikom is True, also to
+        priecinok_faktury_pre_skladnikov. Only AFTER the required copies exist is the original file
+        removed from the upload folder (priecinok_invoices).
 
-        kopia_skladnikom: True (predvolené)  archivuje aj do priečinka pre
-        skladníkov (typický prípad: došlá faktúra za tovar, ktorý skladníci
-        preberajú). False  archivuje IBA do priecinok_faktury (typicky pri
-        došlých faktúrach za služby / réžiu / prenájom, ktoré sa skladníkov
-        netýkajú a nemali by ich zbytočne zaťažovať).
+        kopia_skladnikom: True (default) also archives to the warehouse folder (the usual case: a
+        received invoice for goods the warehouse takes in). False archives ONLY to priecinok_faktury
+        (typically received invoices for services, overheads or rent, which do not concern the
+        warehouse and should not clutter its folder).
 
-        Lomka „/" nie je v názve súboru povolená, preto sa v názve súboru
-        nahrádza pomlčkou (napr. „DF0759/26"  „DF0759-26.pdf"); v Exceli
-        zostáva pôvodný tvar s lomkou. Volá sa iba pri schválení prijatej
-        faktúry, nikdy pre vystavené. Aktualizuje aj cestu v zázname zálohy
-        (stĺpec „PDF súbor", smerujúci na kópiu v priecinok_faktury).
+        A slash is not allowed in file names, so it becomes a dash in the file name ("DF0759/26" ->
+        "DF0759-26.pdf"); Excel keeps the original form with the slash. Called only when a received
+        invoice is approved, never for issued ones. Also updates the path in the staging record (the
+        "PDF súbor" column, pointing to the copy in priecinok_faktury).
 
-        Ak „Číslo fa - naše" nemá očakávaný tvar, alebo pôvodný súbor už
-        neexistuje, alebo niektorá kópia zlyhá, celá operácia sa preruší
-        a pôvodný súbor v priecinok_invoices sa NEODSTRÁNI.
+        If "Číslo fa - naše" does not have the expected form, the original file no longer exists, or
+        a copy fails, the whole operation stops and the original file in priecinok_invoices is NOT
+        removed.
         """
         povodna_cesta = zaznam.get("PDF súbor", "")
-        # schval() vyššie už overil, že súbor existuje  ak by sa medzi
-        # tým predsa len stratil (napr. iný proces ho vymazal medzitým),
-        # zdvihneme jasnú chybu, aby sa neurobil polovičný zápis
+        # schval() above already checked that the file exists; if it disappeared in the meantime
+        # anyway (another process deleted it), raise a clear error so nothing is half-written
         if not povodna_cesta or not os.path.exists(povodna_cesta):
             raise ValueError(
                 f"PDF súbor '{povodna_cesta}' už neexistuje  archivácia zlyhala.")
@@ -1212,8 +1174,8 @@ class ExcelManager:
 
         priecinok_faktury = self.k.get("priecinok_faktury")
         priecinok_skladnikov = self.k.get("priecinok_faktury_pre_skladnikov")
-        # priecinok_faktury je povinný; skladnikov je povinný IBA keď
-        # sa doň má kopírovať (kopia_skladnikom == True)
+        # priecinok_faktury is required; the warehouse folder is required ONLY when we copy into it
+        # (kopia_skladnikom == True)
         if not priecinok_faktury:
             raise ValueError(
                 "V config.json chýba 'priecinok_faktury'  archivácia PDF nie "
@@ -1250,10 +1212,9 @@ class ExcelManager:
                 f"Kopírovanie PDF do archívnych priečinkov zlyhalo: {e}. "
                 f"Skontrolujte prístupové práva a voľné miesto na disku.") from e
 
-        # Obe kópie sa už podarilo vytvoriť  odstránenie pôvodného súboru
-        # sa neponechá zlyhať celé schválenie (napr. pri prechodnom
-        # zamknutí súboru); v najhoršom prípade ostane v priecinok_invoices
-        # neškodná osamotená kópia navyše, nič sa nestratí.
+        # Both copies already exist: failing to remove the original must not fail the whole approval
+        # (e.g. a file briefly locked). At worst a harmless extra copy stays in priecinok_invoices;
+        # nothing is lost.
         try:
             os.remove(povodna_cesta)
         except OSError:
@@ -1263,23 +1224,18 @@ class ExcelManager:
 
     def _archivuj_povodnym_nazvom(self, zaznam: dict, id_zaznamu: str):
         """
-        Ekvivalent _premenuj_archivovane_pdf pre VYSTAVENÉ (vlastné)
-        faktúry: skopíruje pôvodný PDF súbor (BEZ premenovania, keďže
-        vystavené faktúry nemajú interné DF/zDF referenčné číslo) do
-        priecinok_faktury a AŽ POTOM odstráni pôvodný súbor z priečinka
-        nahrávania (priecinok_invoices). Do priecinok_faktury_pre_skladnikov
-        sa NEKOPÍRUJE  ten obsahuje iba prijaté faktúry, s ktorými
-        pracujú skladníci pri kontrole tovaru. Ak by v cieľovom priečinku
-        už existoval súbor s rovnakým názvom, k novému sa pridá číslovaná
-        prípona (napr. „faktura.pdf"  „faktura-1.pdf") namiesto prepísania.
-        Ak niektorá časť operácie zlyhá, pôvodný súbor v priecinok_invoices
-        sa NEODSTRÁNI  radšej ho ponechať na mieste než ho stratiť
-        bez náhrady.
+        The counterpart of _premenuj_archivovane_pdf for ISSUED (own) invoices: copies the original
+        PDF (NOT renamed, since issued invoices have no internal DF/zDF number) to priecinok_faktury
+        and only THEN removes the original from the upload folder (priecinok_invoices). Nothing is
+        copied to priecinok_faktury_pre_skladnikov: that folder holds only received invoices, which
+        the warehouse staff use to check incoming goods. If a file with the same name already exists
+        in the target folder, a numbered suffix is added ("faktura.pdf" -> "faktura-1.pdf") instead
+        of overwriting it. If any part fails, the original in priecinok_invoices is NOT removed:
+        better to leave it in place than to lose it.
         """
         povodna_cesta = zaznam.get("PDF súbor", "")
-        # schval() vyššie už overil, že súbor existuje  ak by sa medzi
-        # tým predsa len stratil, zdvihneme jasnú chybu (rovnako ako pri
-        # prijatých), aby sa neurobil polovičný zápis
+        # schval() above already checked that the file exists; if it disappeared in the meantime
+        # anyway, raise a clear error (as for received invoices) so nothing is half-written
         if not povodna_cesta or not os.path.exists(povodna_cesta):
             raise ValueError(
                 f"PDF súbor '{povodna_cesta}' už neexistuje  archivácia zlyhala.")
@@ -1290,9 +1246,9 @@ class ExcelManager:
                 "je kam vykonať. Doplňte cestu a skúste znovu.")
         nazov = os.path.basename(povodna_cesta)
         cesta_faktury = os.path.join(priecinok_faktury, nazov)
-        # ak by v cieli náhodou existoval súbor s rovnakým názvom (dva
-        # skeny s tým istým názvom, napr. „faktura.pdf" v rôznych mesiacoch),
-        # nepremeníme sa cez neho  pridáme suffix "-1", "-2" atď.
+        # if a file with the same name happens to exist in the target (two scans with the same name,
+        # e.g. "faktura.pdf" in different months), do not overwrite it: add the suffix "-1", "-2",
+        # etc.
         base, pripona = os.path.splitext(cesta_faktury)
         suffix = 1
         while os.path.exists(cesta_faktury) and os.path.abspath(cesta_faktury) != os.path.abspath(povodna_cesta):
@@ -1307,10 +1263,9 @@ class ExcelManager:
                 f"Kopírovanie PDF do priecinok_faktury zlyhalo: {e}. "
                 f"Skontrolujte prístupové práva a voľné miesto na disku.") from e
 
-        # Kópia sa podarila  odstránenie pôvodného súboru sa nesmie
-        # nechať zlyhať celé schválenie (napr. pri prechodnom zamknutí
-        # súboru); v najhoršom prípade ostane v priecinok_invoices
-        # neškodná osamotená kópia navyše, nič sa nestratí.
+        # The copy succeeded: failing to remove the original must not fail the whole approval (e.g.
+        # a file briefly locked). At worst a harmless extra copy stays in priecinok_invoices;
+        # nothing is lost.
         try:
             if os.path.abspath(cesta_faktury) != os.path.abspath(povodna_cesta):
                 os.remove(povodna_cesta)
@@ -1321,34 +1276,28 @@ class ExcelManager:
 
     def preciskuj_cisla_archivu(self):
         """
-        Prečísluje stĺpec „Číslo fa - naše" u NESCHVÁLENÝCH (Čaká na
-        schválenie) prijatých faktúr, aby DF/zDF čísla boli MONOTÓNNE
-        rastúce a nekolidovali s ničím obsadeným. Volá sa pri každom
-        obnovení tabuľky (app.obnov_tabulku).
+        Renumbers the "Číslo fa - naše" column of received invoices that are NOT yet approved
+        (pending), so the DF/zDF numbers keep INCREASING and never collide with anything already
+        taken. Called on every table refresh (app.obnov_tabulku).
 
-        Číslo sa POVAŽUJE za platné a NEPRENESIE sa, keď spĺňa VŠETKY tieto
-        podmienky:
-          • má tvar DF/zDF NNNN/RR pre aktuálny rok
-          • NIE JE už obsadené (archívny PDF súbor v priecinok_faktury alebo
-            riadok v hlavnej tabuľke faktury_prijate.xlsx pre daný jazyk)
-          • medzi ostatnými NESCHVÁLENÝMI záznamami rovnakého jazyka je
-            UNIKÁTNE (žiadny iný cakajuci nemá to isté číslo)
-          • je VYŠŠIE než najvyššie natrvalo obsadené číslo (archív + hlavná
-            tabuľka)  monotónnosť postupnosti. Predtým sa toto pravidlo
-            nevyžadovalo a auto-priradenie „najmenšie voľné" mohlo nahranej
-            faktúre dať číslo hlboko pod aktuálnu horné hranicou (typický
-            prípad: DF0774-DF0782 sú v archíve, ale DF0773 slot je voľný,
-            takže nová faktúra dostala DF0773 namiesto DF0783  vyzeralo to
-            ako preskočenie čísla dozadu).
+        A number is KEPT when ALL of these hold:
+          - it has the form DF/zDF NNNN/YY for the current year
+          - it is NOT already taken (an archive PDF in priecinok_faktury or a row in the main
+            workbook faktury_prijate.xlsx for that language)
+          - it is UNIQUE among the other pending records of the same language
+          - it is HIGHER than the highest permanently taken number (archive + main workbook), so the
+            sequence only goes up. This rule used to be missing, and the "smallest free"
+            auto-assignment could give a new invoice a number far below the current ceiling
+            (typically DF0774-DF0782 in the archive with the DF0773 slot free, so a new invoice got
+            DF0773 instead of DF0783, which looked like the numbering jumping backwards).
 
-        Ak niektorá podmienka neplatí, taký záznam sa PREČÍSLUJE na ďalšie
-        voľné číslo nad aktuálnu horné hranicou.
+        If any condition fails, the record is RENUMBERED to the next free number above the current
+        ceiling.
 
-        Vďaka podmienke „musí byť vyššie než horná hranica" ostávajú ručné
-        úpravy stĺpca „Číslo fa - naše" cez „Upraviť" rešpektované, pokiaľ
-        ich používateľ posunul VPRED (nad aktuálny archív). Úprava dozadu
-        pod archív by sekvenciu porušila, tak sa vráti dopredu; ak s tým
-        používateľ nesúhlasí, musí prečíslovať aj archívne súbory manuálne.
+        Because of the "higher than the ceiling" rule, manual edits of "Číslo fa - naše" via
+        "Upraviť" are respected as long as the user moved the number FORWARD (above the current
+        archive). Moving it back below the archive would break the sequence, so it is moved forward
+        again; if the user disagrees, the archive files have to be renumbered by hand too.
         """
         rok2 = datetime.now().strftime("%y")
         zaznamy = self.nacitaj_zalohu(len_cakajuce=False)
@@ -1366,9 +1315,9 @@ class ExcelManager:
                 m = vzor.match(str(z.get("Číslo fa - naše", "")))
                 cakajuce.append((int(m.group(1)) if m else None, z))
 
-            # Hranicu určuje HLAVNÁ TABUĽKA (autorita účtovníčky). Archívne
-            # PDF ju nezvyšujú  bránia len prepísaniu existujúceho súboru,
-            # preto sú nižšie v kolíznej množine, nie v hranici.
+            # The ceiling comes from the MAIN WORKBOOK (the accountant's authority). Archive PDFs do
+            # not raise it; they only prevent overwriting an existing file, so they are in the
+            # collision set below, not in the ceiling.
             z_tabulky = self._cisla_v_hlavnej_tabulke(jazyk)
             archiv = self._cisla_v_archive(jazyk)
 
@@ -1380,15 +1329,15 @@ class ExcelManager:
             hranica = max(z_tabulky | {zaciatok})
             trvalo_pouzite = z_tabulky | archiv
 
-            # Zisti, koľkokrát sa každé aktuálne číslo objavuje medzi cakajucimi
-            # (potrebné na detekciu kolízie „dvaja cakajuci si nárokujú to isté")
+            # Count how often each current number appears among the pending records (needed to
+            # detect two pending records claiming the same number)
             pocet = {}
             for num, _ in cakajuce:
                 if num is not None:
                     pocet[num] = pocet.get(num, 0) + 1
 
-            respektovane = set()       # čísla, ktoré cakajuci má a NECHÁVAME
-            na_precislovanie = []      # cakajuci bez validného čísla nad hranicou
+            respektovane = set()       # numbers a pending record has and we KEEP
+            na_precislovanie = []      # pending records without a valid number above the ceiling
             for num, z in cakajuce:
                 if (num is not None
                         and num > hranica
@@ -1398,8 +1347,8 @@ class ExcelManager:
                 else:
                     na_precislovanie.append(z)
 
-            # Nové čísla priraď stabilne (v poradí pridania = poradia ID)
-            # od prvého voľného slotu NAD hranicou, aby postupnosť rástla.
+            # Assign new numbers in a stable order (order of upload = order of ID) from the first
+            # free slot ABOVE the ceiling, so the sequence keeps growing.
             pouzite_teraz = trvalo_pouzite | respektovane
             na_precislovanie.sort(key=lambda z: str(z.get("ID", "")))
             kandidat = hranica + 1
@@ -1413,9 +1362,10 @@ class ExcelManager:
                 kandidat += 1
 
     def nacitaj_vystavene(self) -> list:
-        """Vráti všetky riadky hlavnej tabuľky vystavených (odberateľských)
-        faktúr z hárka HAROK_VYSTAVENA_TUZEMSKE. Ostatné hárky (Predfaktúry,
-        zOF) sa nečítajú."""
+        """
+        Returns all rows of the main issued-invoices workbook from the sheet
+        HAROK_VYSTAVENA_TUZEMSKE. The other sheets (Predfaktúry, zOF) are not read.
+        """
         wb = load_workbook(self.k["subor_vystavene"], read_only=True)
         if HAROK_VYSTAVENA_TUZEMSKE not in wb.sheetnames:
             wb.close()
@@ -1438,18 +1388,17 @@ class ExcelManager:
         return riadky
 
     def nacitaj_prijate(self) -> list:
-        """Vráti všetky riadky z OBOCH hárkov prijatých faktúr (Tuzemské +
-        Zahraničné) z hlavnej DF tabuľky. Slúži pre synchronizáciu Zádržných
-        do Google Kalendára  keď účtovník doplní zádržné dátumy priamo
-        v Exceli (týždne/mesiace po nahratí faktúry), tlačidlo
-        „Synchronizuj kalendár" prečíta oba hárky a vytvorí/aktualizuje
-        udalosti podľa aktuálneho stavu.
+        """
+        Returns all rows from BOTH received-invoice sheets (domestic + foreign) of the main DF
+        workbook. Used to sync retention dates to Google Calendar: when the accountant adds them
+        directly in Excel (weeks or months after the invoice was uploaded), the "Synchronizuj
+        kalendár" button reads both sheets and creates or updates events from the current state.
 
-        Kľúče v každom slovníku zodpovedajú EXAKTNE hlavičkám v Exceli
-        (t.j. „Číslo faktúry", „Dodávateľ", „Zádržné krátkodobé",
-        „Zádržné krátkodobé - suma v €" atď.). Datumy sa vrátia ako
-        stringy „DD.MM.RRRR" pre kompatibilitu s existujúcim
-        calendar-manager kódom, ktorý ich parsuje cez parsuj_datum()."""
+        The keys of each dict match the Excel headers EXACTLY ("Číslo faktúry", "Dodávateľ",
+        "Zádržné krátkodobé", "Zádržné krátkodobé - suma v €", etc.). Dates are returned as
+        "DD.MM.YYYY" strings for compatibility with the existing calendar_manager code, which parses
+        them with parsuj_datum().
+        """
         wb = load_workbook(self.k["subor_prijate"], read_only=True)
         riadky = []
         for harok_nazov, kluce in (
@@ -1470,36 +1419,36 @@ class ExcelManager:
                         hodnoty.append(v.strftime("%d.%m.%Y"))
                     else:
                         hodnoty.append(str(v))
-                # zaberieme iba prvých len(kluce) hodnôt (Excel môže mať aj
-                # nadbytočný „U" stĺpec 15 s poznámkou; nás zaujímajú prvé)
+                # take only the first len(kluce) values (Excel may have an extra "U" column 15 with
+                # a note; we only need the first ones)
                 riadky.append(dict(zip(kluce, hodnoty[:len(kluce)])))
         wb.close()
         return riadky
 
     def zamietni(self, id_zaznamu: str):
-        """Vymaže záznam zo záložnej tabuľky A odstráni aj samotný PDF
-        súbor faktúry z disku. Zamietnutá faktúra je vec, ktorú
-        používateľ nechce ďalej vidieť ani spracúvať  ponechanie súboru
-        v priecinok_invoices by len zaneriadilo priečinok a používateľ
-        by si musel PDF mazať ručne. Zamietnutie navyše okamžite uvoľní
-        interné číslo DF/zDF RRRRNNN pre ďalšie čakajúce faktúry
-        (rovnako ako pri obyčajnom vymazaní záznamu)."""
+        """
+        Deletes a record from the staging workbook AND removes the invoice PDF from disk. A rejected
+        invoice is something the user does not want to see or process again; leaving the file in
+        priecinok_invoices would only clutter the folder and the user would have to delete the PDF
+        by hand. Rejection also frees the internal DF/zDF YYYYNNN number for the next pending
+        invoice right away (as when a record is simply deleted).
+        """
         self.vymaz_zaznamy([id_zaznamu])
 
     def vymaz_zaznamy(self, id_list: list) -> int:
-        """Vymaže záznamy zo záložnej tabuľky podľa zoznamu ID a súčasne
-        odstráni z disku aj ich PDF súbory (uvedené v stĺpci „PDF súbor",
-        typicky v priecinok_invoices  ešte pred archiváciou). Ak sa nejaký
-        súbor nedá odstrániť (chýba, alebo je zamknutý iným procesom),
-        pokračujeme ďalej  vymazanie záznamu zo zálohy prebehne bez
-        ohľadu na to, aby zamietnutá faktúra nezostala visieť v tabuľke.
-        Vracia počet vymazaných riadkov."""
+        """
+        Deletes records from the staging workbook by a list of IDs and removes their PDF files from
+        disk as well (listed in the "PDF súbor" column, usually in priecinok_invoices, before
+        archiving). If a file cannot be removed (missing, or locked by another process), carry on:
+        the record is deleted from staging regardless, so a rejected invoice does not hang around in
+        the table. Returns the number of deleted rows.
+        """
         if not id_list:
             return 0
         idx_pdf = STLPCE_ZALOHA.index("PDF súbor")
         wb = load_workbook(self.k["subor_zaloha"])
         ws = wb.active
-        # zbieraj indexy riadkov na zmazanie + ich PDF cesty
+        # collect the row indexes to delete and their PDF paths
         rows = []
         pdf_cesty = []
         for idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
@@ -1519,12 +1468,11 @@ class ExcelManager:
             wb.save(self.k["subor_zaloha"])
         wb.close()
 
-        # Odstráň aj samotné PDF súbory (typicky ešte v priecinok_invoices)
-        # v prípade, že by faktúra už bola archivovaná (schválená a potom
-        # dodatočne mazaná používateľom cez „Vymazať zobrazené") sa vymaže
-        # aj kópia v priecinok_faktury / priecinok_faktury_pre_skladnikov,
-        # aby jej číslo z fyzického archívu tiež uvoľnilo (pozri
-        # _rezervuj_cislo_archivu  archívne PDF sú jediný trvalý blok).
+        # Remove the PDF files too (usually still in priecinok_invoices). If the invoice was already
+        # archived (approved and later deleted by the user via "Vymazať zobrazené"), the copy in
+        # priecinok_faktury / priecinok_faktury_pre_skladnikov is deleted as well, so its number is
+        # also freed in the physical archive (see _rezervuj_cislo_archivu: archive PDFs are the only
+        # permanent block).
         priecinok_faktury = self.k.get("priecinok_faktury", "")
         priecinok_skladnikov = self.k.get("priecinok_faktury_pre_skladnikov", "")
         for cesta in pdf_cesty:

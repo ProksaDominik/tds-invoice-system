@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-# install.ps1 - jednorazová inštalácia aplikácie na novom počítači.
-# Spustite kliknutím pravým tlačidlom na tento súbor -> "Spustiť s PowerShell",
-# alebo v PowerSheli: powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+# install.ps1 - one-time installation of the app on a new computer.
+# Run it with a right-click on this file -> "Run with PowerShell",
+# or in PowerShell: powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 
 $ErrorActionPreference = "Stop"
-# skript je v podpriečinku scripts\, projekt je o úroveň vyššie
+# the script lives in scripts\, the project is one level up
 $projekt = Split-Path $PSScriptRoot -Parent
 
 Write-Host "== Inštalácia: Správa faktúr TDS s.r.o. ==" -ForegroundColor Cyan
@@ -21,15 +21,15 @@ if (-not $python) {
 }
 Write-Host "Python nájdený: $($python.Source)" -ForegroundColor Green
 
-# 2. Python knižnice
+# 2. Python packages
 Write-Host ""
 Write-Host "Inštalujem Python knižnice z requirements.txt..."
 python -m pip install -r (Join-Path $projekt "requirements.txt")
 
-# 3. PaddlePaddle - výpočtové jadro pre PaddleOCR (čítanie skenovaných faktúr).
-#    S grafickou kartou NVIDIA verzia pre GPU (CUDA 12.9 - podporuje aj nové
-#    karty RTX 50xx), inak verzia pre procesor. Modely OCR (~135 MB) sa
-#    stiahnu automaticky pri prvej naskenovanej faktúre.
+# 3. PaddlePaddle - the engine behind PaddleOCR (reading scanned invoices).
+#    With an NVIDIA graphics card, the GPU build (CUDA 12.9, which also supports
+#    the new RTX 50xx cards), otherwise the CPU build. The OCR models (~135 MB)
+#    download automatically on the first scanned invoice.
 Write-Host ""
 if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
     Write-Host "Nájdená grafická karta NVIDIA - inštalujem PaddlePaddle pre GPU..."
@@ -41,15 +41,15 @@ if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
     python -m pip install "paddlepaddle>=3.2"
 }
 
-# 4. Konfigurácia - config.json nie je v gite; pri prvej inštalácii sa
-#    vytvorí zo vzoru, existujúci (skopírovaný) súbor sa nikdy neprepíše.
+# 4. Configuration - config.json is not in git; on the first install it is
+#    created from the example, an existing (copied) file is never overwritten.
 $konfig = Join-Path $projekt "config.json"
 if (-not (Test-Path $konfig)) {
     Copy-Item (Join-Path $projekt "config.example.json") $konfig
     Write-Host "Vytvorený config.json zo vzoru - doplňte IČO firmy a cesty." -ForegroundColor Yellow
 }
 
-# 5. Odkaz na pracovnej ploche
+# 5. Desktop shortcut
 Write-Host ""
 Write-Host "Vytváram odkaz na ploche..."
 $desktop = [Environment]::GetFolderPath("Desktop")

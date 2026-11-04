@@ -1,31 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-calendar_manager.py  Google Kalendár.
+calendar_manager.py - Google Calendar.
 
-Vytvára celodenné pripomienky pre:
+Creates all-day reminders for:
 
-  1. SPLATNOSŤ faktúry (v deň splatnosti)  vzniká pri schválení.
+  1. The invoice DUE DATE (on the day): created on approval.
 
-  2. Hromadné pripomienky pred 30.6.  vzniká/aktualizuje sa pri schválení
-     vystavenej faktúry (spoločné pripomienky obsahujú zoznam všetkých
-     splatných faktúr do termínu).
+  2. Batch reminders before 30 June: created or updated when an issued invoice is approved (the
+  2. shared reminders list every invoice due by that date).
 
-  3. ZÁDRŽNÉ (krátkodobé + dlhodobé) vystavených faktúr  vzniká pri
-     schválení A pri neskoršej ručnej editácii v Exceli (cez tlačidlo
-     „Synchronizuj kalendár"). Pre KAŽDÝ zadaný dátum sa vytvorí až
-     ŠTYRI samostatné celodenné udalosti (30, 20, 10 dní pred a
-     v deň zádržného), pretože Google Calendar nedovoľuje popup
-     pripomienku viac než 28 dní pred udalosťou.
+  3. RETENTION (short- and long-term) of issued invoices: created on approval AND after later manual
+  3. edits in Excel (via the "Synchronizuj kalendár" button). EACH date creates up to FOUR separate
+  3. all-day events (30, 20 and 10 days ahead and on the day), because Google Calendar does not
+  3. allow a popup reminder more than 28 days before an event.
 
-Udalosti sú označkované cez extendedProperties.private, takže sa pri
-opätovnej synchronizácii aktualizujú namiesto duplikovania. Udalosti
-s dátumom v minulosti sa preskakujú (nemá zmysel spätne pridávať
-notifikácie na už uplynulé dni).
+Events are tagged via extendedProperties.private, so syncing again updates them instead of creating
+duplicates. Events dated in the past are skipped (no point adding notifications for days already
+gone).
 
-AKTIVÁCIA: modul je pripravený, ale spí, kým vedľa aplikácie nie je súbor
-credentials.json (návod v docs/user-guide-sk.md). Prvé použitie otvorí prehliadač na
-prihlásenie do Google účtu; token sa uloží do token.json a ďalej všetko
-beží automaticky.
+ACTIVATION: the module is ready but stays dormant until a credentials.json file sits next to the app
+(see docs/user-guide-sk.md). The first use opens a browser to sign in to the Google account; the
+token is saved to token.json and everything runs automatically from then on.
 """
 
 import os
@@ -36,12 +31,13 @@ SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 
 
 def parsuj_datum(text) -> "date | None":
-    """Robustne prečíta dátum v rôznych formátoch. Prijíma:
-      • priamo datetime alebo date objekt (bežné z openpyxl)
-      • reťazec DD.MM.RRRR / D.M.RRRR / DD/MM/RRRR / YYYY-MM-DD ...
-    Ak text obsahuje aj čas (napr. „06.03.2031 00:00:00" ako openpyxl
-    občas vracia), časť za medzerou sa odreže. Prázdna hodnota alebo
-    reťazec „trvalá"/"trvala"  vráti None.
+    """
+    Reads a date in various formats. Accepts:
+      - a datetime or date object (common from openpyxl)
+      - a string DD.MM.YYYY / D.M.YYYY / DD/MM/YYYY / YYYY-MM-DD ...
+    If the text also contains a time ("06.03.2031 00:00:00", which openpyxl sometimes returns), the
+    part after the space is cut off. An empty value or the string "trvalá"/"trvala" (permanent)
+    returns None.
     """
     if text is None:
         return None
@@ -54,13 +50,13 @@ def parsuj_datum(text) -> "date | None":
     if not s:
         return None
 
-    # odrez prípadný čas („06.03.2031 00:00:00")
+    # cut off a time if present ("06.03.2031 00:00:00")
     s = s.split(" ")[0]
 
     if s.lower() in ("trvalá", "trvala"):
         return None
 
-    # zjednoť medzery kolo bodiek a nahraď / alebo - za .
+    # normalise spaces around the dots and replace / or - with .
     s = re.sub(r"\s*\.\s*", ".", s)
     s = re.sub(r"[\/\-]", ".", s)
 
@@ -89,31 +85,32 @@ def parsuj_datum(text) -> "date | None":
     return None
 
 
-# skrátené kódy typu zádržného pre kľúč v extendedProperties  ASCII-only,
-# aby sa vyhli komplikáciám pri URL-kódovaní privateExtendedProperty query
-# (list events) a aby značka bola stabilná bez ohľadu na diakritiku
+# short codes for the retention type, used in the extendedProperties key: ASCII only, to avoid
+# trouble with URL encoding in the privateExtendedProperty query (list events) and to keep the tag
+# stable regardless of diacritics
 _KOD_ZADRZNE = {"krátkodobé": "krat", "dlhodobé": "dlh"}
 
 
 def _zadrzne_znacka(typ_zadrzne: str, cislo_faktury: str, offset_dni: int) -> str:
-    """ASCII-safe identifikátor konkrétnej udalosti zádržného pre kombináciu
-    (typ, faktúra, offset). Používa sa v extendedProperties, aby sa tá istá
-    udalosť pri opakovaných synchronizáciách našla a aktualizovala namiesto
-    duplikovania. Príklady:
-      • krat_20260081_30  krátkodobé, faktúra 20260081, 30 dní vopred
-      • dlh_DF0782_26_0   dlhodobé, faktúra DF0782/26 (lomka  '_'), v deň
+    """
+    ASCII-safe identifier of one retention event for the combination (type, invoice, offset). Used
+    in extendedProperties so the same event is found and updated on repeated syncs instead of being
+    duplicated. Examples:
+      - krat_20260081_30   short-term, invoice 20260081, 30 days ahead
+      - dlh_DF0782_26_0    long-term, invoice DF0782/26 (slash -> '_'), on the day
     """
     kod = _KOD_ZADRZNE.get(typ_zadrzne, "zad")
-    # číslo faktúry môže obsahovať lomku alebo iné špeciálne znaky
-    # (napr. „DF0782/26")  nahradíme ich podčiarnikom pre bezpečnosť
+    # the invoice number can contain a slash or other special characters ("DF0782/26"); replace them
+    # with an underscore to be safe
     cf = re.sub(r"[^A-Za-z0-9]+", "_", str(cislo_faktury or "").strip())
     return f"{kod}_{cf}_{int(offset_dni)}"
 
 
 def _zadrzne_znacka_skupina(typ_zadrzne: str, cislo_faktury: str) -> str:
-    """Prefix pre všetky značky jednej skupiny (rovnaký typ + faktúra),
-    napr. „krat_20260081_" pokrýva _30 / _20 / _10 / _0. Slúži pri mazaní
-    celej skupiny, keď používateľ vymaže zádržné dátum v Exceli."""
+    """
+    Prefix for all tags of one group (same type + invoice), e.g. "krat_20260081_" covers _30 / _20 /
+    _10 / _0. Used to delete the whole group when the user removes a retention date in Excel.
+    """
     kod = _KOD_ZADRZNE.get(typ_zadrzne, "zad")
     cf = re.sub(r"[^A-Za-z0-9]+", "_", str(cislo_faktury or "").strip())
     return f"{kod}_{cf}_"
@@ -128,22 +125,24 @@ class CalendarManager:
     # ------------------------------------------------------------ stav
 
     def aktivny(self) -> bool:
-        """Kalendár sa používa len ak je zapnutý v konfigurácii A existuje
-        credentials.json (alebo už uložený token.json z minulého
-        prihlásenia). Bez tohto by sa aplikácia pri každom volaní zbytočne
-        pokúšala pripájať na Google API a padala s chybou."""
+        """
+        The calendar is only used if it is switched on in the config AND credentials.json exists (or
+        a token.json saved from an earlier sign-in). Otherwise the app would try to connect to the
+        Google API on every call for nothing and fail with an error.
+        """
         if not self.k.get("kalendar_zapnuty", True):
             return False
         return (os.path.exists(self.k.get("google_credentials", "credentials.json"))
                 or os.path.exists(self.k.get("google_token", "token.json")))
 
-    # ------------------------------------------------------------ prihlásenie
+    # ------------------------------------------------------------ sign-in
 
     def pripoj(self):
-        """Prihlási sa do Google Calendar API (OAuth). Idempotentné
-        opakované volania sú lacné (vrátia hneď, ak je service pripojený
-        a credentials sú platné). Po vypršaní tokenu sa jeden pokus urobí
-        cez refresh_token."""
+        """
+        Signs in to the Google Calendar API (OAuth). Idempotent: repeated calls are cheap (they
+        return at once if the service is connected and the credentials are valid). When the token
+        expires, one attempt is made with the refresh_token.
+        """
         try:
             from google.auth.transport.requests import Request
             from google.oauth2.credentials import Credentials
@@ -157,7 +156,7 @@ class CalendarManager:
         token = self.k.get("google_token", "token.json")
         creds_file = self.k.get("google_credentials", "credentials.json")
 
-        # rýchla cesta: už pripojení a token je platný
+        # fast path: already connected and the token is valid
         if self.service and self.creds:
             if self.creds.valid:
                 return True
@@ -169,10 +168,9 @@ class CalendarManager:
                     self.service = build("calendar", "v3", credentials=self.creds)
                     return True
                 except Exception:
-                    # refresh zlyhal (najčastejšie invalid_grant  Google
-                    # tokeny v „Testing" režime OAuth aplikácie vypršia
-                    # každých 7 dní)  úplný reset, zmaž mrtvý token
-                    # zo súboru a pokračuj do plného re-loginu nižšie
+                    # refresh failed (usually invalid_grant: Google tokens of an OAuth app in
+                    # "Testing" mode expire every 7 days). Full reset: delete the dead token from
+                    # the file and continue with a full sign-in below
                     self.service = None
                     self.creds = None
                     try:
@@ -187,21 +185,19 @@ class CalendarManager:
                 self.creds = None
 
         if not self.creds or not self.creds.valid:
-            # Skús obnoviť z refresh tokenu. Ak Google odpovie
-            # „invalid_grant: Token has been expired or revoked", refresh
-            # zdvihne RefreshError  to sa deje bežne, keď je OAuth
-            # aplikácia v Google Cloud Console v režime „Testing", lebo
-            # v tom režime Google POVINNE ruší refresh tokeny každých
-            # 7 dní. Riešenie: zmaž mrtvý token a spusti čerstvé OAuth
-            # prihlásenie (browser). Používateľ raz klikne  a je hotovo.
+            # Try to refresh with the refresh token. If Google answers "invalid_grant: Token has
+            # been expired or revoked", refresh raises RefreshError. That happens regularly when the
+            # OAuth app in Google Cloud Console is in "Testing" mode, because in that mode Google
+            # always revokes refresh tokens after 7 days. Fix: delete the dead token and start a
+            # fresh OAuth sign-in (browser). The user clicks once and it is done.
             obnovene = False
             if self.creds and self.creds.expired and self.creds.refresh_token:
                 try:
                     self.creds.refresh(Request())
                     obnovene = True
                 except Exception as e:
-                    # refresh zlyhal (revoked / expired / neplatný refresh
-                    # token). Zahoď mŕtvy token a pokračuj do OAuth flow.
+                    # refresh failed (revoked / expired / invalid refresh token). Drop the dead
+                    # token and continue with the OAuth flow.
                     print(f"[calendar] refresh zlyhal ({e})  spúšťam nové prihlásenie")
                     self.creds = None
                     try:
@@ -221,10 +217,10 @@ class CalendarManager:
         self.service = build("calendar", "v3", credentials=self.creds)
         return True
 
-    # ------------------------------------------------------------ termín 30.6.
+    # ------------------------------------------------------------ 30 June deadline
 
     def dalsi_termin(self) -> date:
-        """Najbližší výskyt každoročného termínu (predvolene 30.6.)."""
+        """The next occurrence of the yearly deadline (30 June by default)."""
         text = self.k.get("hromadny_termin", "30.06.")
         d, m = [int(x) for x in text.strip(". ").split(".")[:2]]
         dnes = date.today()
@@ -237,19 +233,18 @@ class CalendarManager:
 
     def _uloz_udalost(self, kluc_znacka: str, znacka: str, telo: dict,
                       cache_id: dict = None) -> str:
-        """Vytvorí udalosť, alebo aktualizuje existujúcu s rovnakou
-        značkou v extendedProperties.private[kluc_znacka] = znacka.
+        """
+        Creates an event, or updates the existing one with the same tag in
+        extendedProperties.private[kluc_znacka] = znacka.
 
-        cache_id: voliteľný dict {(kluc_znacka, znacka) -> event_id}
-                  vopred načítaný jedným list-om cez celý kalendár. Ak je
-                  poskytnutý, VYHNEME SA list-query per volanie  namiesto
-                  toho hľadáme lokálne v dicte (O(1) namiesto ~200 ms
-                  po sieti na volanie). Pri synchronizácii cez celý zoznam
-                  vystavených faktúr toto zrýchli sync z minút na sekundy.
+        cache_id: optional dict {(kluc_znacka, znacka) -> event_id} loaded beforehand with one list
+        over the whole calendar. If given, the per-call list query is AVOIDED and the lookup happens
+        in the dict instead (O(1) instead of ~200 ms over the network per call). Syncing the whole
+        list of issued invoices goes from minutes to seconds.
 
-        Ak API vráti chybu (napr. expirovaný token uprostred operácie),
-        vynúti opätovné pripojenie a pokus zopakuje ešte raz. Vráti
-        htmlLink udalosti."""
+        If the API returns an error (e.g. a token expiring mid-operation), forces a reconnect and
+        tries once more. Returns the event's htmlLink.
+        """
         telo.setdefault("extendedProperties", {}).setdefault("private", {})[kluc_znacka] = znacka
         self.pripoj()
         try:
@@ -262,8 +257,8 @@ class CalendarManager:
 
     def _uloz_udalost_body(self, kluc_znacka: str, znacka: str, telo: dict,
                            cache_id: dict = None) -> str:
-        # Ak máme cache, id existujúcej udalosti si tam pozrieme priamo.
-        # Inak (staré volanie bez cache) urobíme klasický list-query.
+        # With a cache, look up the existing event's id there directly. Otherwise (old callers
+        # without a cache) run the usual list query.
         event_id = None
         if cache_id is not None:
             event_id = cache_id.get((kluc_znacka, znacka))
@@ -281,24 +276,23 @@ class CalendarManager:
                 u = self.service.events().update(
                     calendarId="primary", eventId=event_id, body=telo).execute()
             except Exception:
-                # cache mohla byť zastaraná (udalosť medzitým zmazaná)
-                #  spadneme na insert
+                # the cache may be stale (event deleted in the meantime): fall back to insert
                 u = self.service.events().insert(
                     calendarId="primary", body=telo).execute()
         else:
             u = self.service.events().insert(
                 calendarId="primary", body=telo).execute()
 
-        # Ak nám dali cache, aktualizujme aj ju, aby ďalšie upsert-y na
-        # rovnakej značke (napr. re-run) našli id
+        # If a cache was given, update it too, so later upserts with the same tag (e.g. a re-run)
+        # find the id
         if cache_id is not None:
             cache_id[(kluc_znacka, znacka)] = u["id"]
         return u.get("htmlLink", "")
 
-    # ------------------------------------------------------------ SPLATNOSŤ
+    # ------------------------------------------------------------ DUE DATE
 
     def vytvor_udalost_splatnosti(self, zaznam: dict) -> str:
-        """Celodenná udalosť v deň splatnosti faktúry. Vráti odkaz."""
+        """All-day event on the invoice's due date. Returns a link."""
         splatnost = parsuj_datum(zaznam.get("Dátum splatnosti"))
         if splatnost is None:
             return ""
@@ -334,27 +328,25 @@ class CalendarManager:
         return self._uloz_udalost(
             "tds_splatnost", f"{cislo}", telo)
 
-    # ------------------------------------------------------------ ZÁDRŽNÉ
+    # ------------------------------------------------------------ RETENTION
 
     def vytvor_udalost_zadrzne(self, zaznam: dict, typ_zadrzne: str,
                                 datum_val, suma_zadrzne=None,
                                 cache_id: dict = None) -> int:
-        """Vytvorí (alebo zaktualizuje) až ŠTYRI celodenné udalosti pre jedno
-        zádržné vystavenej faktúry: 30, 20, 10 dní vopred + v deň zádržného.
-        Každá je samostatná celodenná udalosť s vlastnou „popup 0 min pred"
-        pripomienkou. Udalosti, ktorých deň už uplynul, sa PRESKOČIA (nemá
-        zmysel spätne pridávať notifikácie na už minulé dátumy).
+        """
+        Creates (or updates) up to FOUR all-day events for one retention of an issued invoice: 30,
+        20 and 10 days ahead and on the day. Each is a separate all-day event with its own "popup 0
+        min before" reminder. Events whose day has passed are SKIPPED (no point adding notifications
+        for dates already gone).
 
-        typ_zadrzne = „krátkodobé" alebo „dlhodobé".
-        datum_val   = dátum zádržného (datetime/date objekt ALEBO reťazec
-                       DD.MM.RRRR). Prázdny alebo neplatný  0 udalostí,
-                       existujúca skupina sa NEMAŽE (na to je
-                       zmaz_udalost_zadrzne).
-        suma_zadrzne = suma zádržnej platby v eurách (napr. 1234.56 alebo
-                       „1234.56" alebo None).
+        typ_zadrzne  = "krátkodobé" or "dlhodobé" (short- or long-term).
+        datum_val    = the retention date (a datetime/date object OR a DD.MM.YYYY string). Empty or
+        invalid: 0 events; an existing group is NOT deleted (that is what zmaz_udalost_zadrzne is
+        for).
+        suma_zadrzne = the retained amount in euros (1234.56, "1234.56" or None).
 
-        Vráti počet vytvorených/aktualizovaných udalostí (0 ak dátum
-        nebol platný alebo všetko bolo v minulosti).
+        Returns the number of events created or updated (0 if the date was invalid or everything was
+        in the past).
         """
         koniec = parsuj_datum(datum_val)
         if koniec is None:
@@ -379,7 +371,7 @@ class CalendarManager:
         )
 
         pocet = 0
-        # Upozornenia 30 / 20 / 10 dní vopred
+        # Reminders 30 / 20 / 10 days ahead
         for n in (30, 20, 10):
             den = koniec - timedelta(days=n)
             if den < dnes:
@@ -398,7 +390,7 @@ class CalendarManager:
             self._uloz_udalost("tds_zadrzne", znacka, telo, cache_id=cache_id)
             pocet += 1
 
-        # V samotný deň zádržného
+        # On the retention day itself
         if koniec >= dnes:
             telo = {
                 "summary": (f"❗ ZÁDRŽNÉ {typ_zadrzne.upper()} ({popis_sumy})"
@@ -418,16 +410,15 @@ class CalendarManager:
 
     def zmaz_udalost_zadrzne(self, typ_zadrzne: str, cislo_faktury: str,
                               cache_id: dict = None) -> int:
-        """Zmaže všetky udalosti zádržného pre daný typ a číslo faktúry
-        (typicky 4 udalosti: _30, _20, _10, _0). Volá sa, keď používateľ
-        v Exceli VYMAZAL zádržný dátum  všetky existujúce upozornenia
-        musia z kalendára tiež zmiznúť. Vráti počet zmazaných udalostí.
+        """
+        Deletes all retention events for the given type and invoice number (usually 4 events: _30,
+        _20, _10, _0). Called when the user REMOVED the retention date in Excel: all existing
+        reminders must disappear from the calendar too. Returns the number of deleted events.
 
-        cache_id: voliteľný dict {(kluc, znacka) -> event_id} vopred
-                  načítaný jedným list-om cez celý kalendár. Ak je
-                  poskytnutý, nerobíme 4 list-query per volanie, len
-                  4 lookupy v lokálnom dicte (a mažeme len tie, ktoré
-                  reálne existujú). Bez cache fungujeme po starom."""
+        cache_id: optional dict {(key, tag) -> event_id} loaded beforehand with one list over the
+        whole calendar. If given, there are no 4 list queries per call, only 4 lookups in the local
+        dict (and only events that really exist are deleted). Without a cache it works the old way.
+        """
         if not cislo_faktury:
             return 0
         self.pripoj()
@@ -439,7 +430,7 @@ class CalendarManager:
             if cache_id is not None:
                 event_id = cache_id.get(("tds_zadrzne", znacka))
                 if event_id is None:
-                    continue  # nič nezistené  žiadny API call
+                    continue  # nothing found: no API call
             else:
                 try:
                     existujuce = self.service.events().list(
@@ -463,12 +454,12 @@ class CalendarManager:
         return zmazanych
 
     def _nacitaj_cache_zadrzne(self) -> dict:
-        """Jednorazovo natiahne VŠETKY existujúce udalosti s
-        extendedProperties.private.tds_zadrzne z kalendára (stránkovane)
-        a vráti dict {("tds_zadrzne", znacka) -> event_id}.
+        """
+        Fetches ALL existing events with extendedProperties.private.tds_zadrzne from the calendar
+        once (paginated) and returns a dict {("tds_zadrzne", tag) -> event_id}.
 
-        Toto beží 1× na začiatku synchronizuj_zadrzne_vystavene a
-        eliminuje N×8 list-query volaní počas hlavnej slučky.
+        Runs once at the start of synchronizuj_zadrzne_vystavene and removes N x 8 list queries from
+        the main loop.
         """
         cache = {}
         self.pripoj()
@@ -477,7 +468,7 @@ class CalendarManager:
             try:
                 resp = self.service.events().list(
                     calendarId="primary",
-                    privateExtendedProperty="tds_zadrzne",  # existencia kľúča
+                    privateExtendedProperty="tds_zadrzne",  # key exists
                     maxResults=2500,
                     pageToken=page_token,
                     showDeleted=False,
@@ -496,33 +487,30 @@ class CalendarManager:
         return cache
 
     def synchronizuj_zadrzne_vystavene(self, faktury: list) -> dict:
-        """Prejde zoznam VYSTAVENÝCH faktúr (odberateľské, hárok „Odoslané
-        faktúry - tuzemské" v OF exceli) a zaistí, že v kalendári je pre
-        KAŽDÝ typ zádržného (krátkodobé + dlhodobé) buď skupina 4 udalostí
-        (keď je v Exceli vyplnený dátum), alebo NIE JE žiadna (keď
-        používateľ dátum vymazal).
+        """
+        Goes through the list of ISSUED invoices (sheet "Odoslané faktúry - tuzemské" in the OF
+        workbook) and makes sure that for EACH retention type (short- and long-term) the calendar
+        has either a group of 4 events (when a date is filled in in Excel) or NONE (when the user
+        removed the date).
 
-        Vystavené faktúry NEMAJÚ interné DF/zDF číslo  ako stabilný ID
-        udalosti používame „Číslo faktúry" (skutočné číslo faktúry TDS,
-        napr. „20260796"). Zádržné stĺpce sa čítajú s KRÁTKYMI kľúčmi
-        (bez „v €"):
-          • „Zádržné krátkodobé"
-          • „Zádržné dlhodobé"
-          • „Zádržné krátkodobé - suma"
-          • „Zádržné dlhodobé - suma"
-         to sú kľúče, ktoré vracia nacitaj_vystavene() cez
-        STLPCE_VYSTAVENA_KLUCE (skrátené oproti Excel hlavičkám).
+        Issued invoices have NO internal DF/zDF number, so the stable event ID is "Číslo faktúry"
+        (TDS's real invoice number, e.g. "20260796"). The retention columns are read with SHORT keys
+        (without "v €"):
+          - "Zádržné krátkodobé"
+          - "Zádržné dlhodobé"
+          - "Zádržné krátkodobé - suma"
+          - "Zádržné dlhodobé - suma"
+        These are the keys nacitaj_vystavene() returns via STLPCE_VYSTAVENA_KLUCE (shortened from
+        the Excel headers).
 
-        Vracia: {'upsertovane': N, 'zmazane': N, 'preskocene': N,
-                 'chyby': [str]}.
+        Returns: {'upsertovane': N, 'zmazane': N, 'preskocene': N, 'chyby': [str]}.
         """
         self.pripoj()
         stats = {"upsertovane": 0, "zmazane": 0, "preskocene": 0, "chyby": []}
-        # Jednorazový cache VŠETKÝCH existujúcich tds_zadrzne udalostí.
-        # Eliminuje ~8 API list-query volaní na faktúru (pri 775 faktúrach
-        # to bolo ~6200 volaní = ~10 min). Teraz je to 1 stránkovaný list
-        # a hlavná slučka volá API len keď reálne treba vytvoriť/aktualizovať
-        # alebo zmazať konkrétnu udalosť.
+        # One-off cache of ALL existing tds_zadrzne events. Removes ~8 API list queries per invoice
+        # (with 775 invoices that was ~6,200 calls, about 10 min). Now it is one paginated list, and
+        # the main loop calls the API only when an event really has to be created, updated or
+        # deleted.
         try:
             cache_id = self._nacitaj_cache_zadrzne()
         except Exception as e:
@@ -558,13 +546,14 @@ class CalendarManager:
                     stats["chyby"].append(f"{cislo} ({typ_z}): {e}")
         return stats
 
-    # ------------------------------------------------------------ hromadné 30.6.
+    # ------------------------------------------------------------ batch reminders for 30 June
 
     def aktualizuj_hromadne_pripomienky(self, faktury: list) -> int:
-        """Vytvorí / prepíše spoločné pripomienky (20 a 10 dní pred 30.6.)
-        so zoznamom všetkých vystavených faktúr splatných do termínu.
-        'faktury' = riadky z hlavnej tabuľky vystavených faktúr. Vráti
-        počet faktúr v zozname."""
+        """
+        Creates or rewrites the shared reminders (20 and 10 days before 30 June) listing all issued
+        invoices due by that date. 'faktury' = rows of the main issued-invoices workbook. Returns
+        the number of invoices in the list.
+        """
         self.pripoj()
         termin = self.dalsi_termin()
         zaciatok = termin - timedelta(days=365)

@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-app.py  Správa faktúr TDS s.r.o.
+app.py - invoice management for TDS s.r.o.
 
-Hlavná aplikácia (Tkinter + ttkbootstrap). Spustenie:  python app.py  (alebo start.bat)
+The main application (Tkinter + ttkbootstrap). Run:  python app.py  (or start.bat)
 
-Postup práce:
-  1. „Nahrať faktúru (PDF)"  vyberiete jeden alebo viac PDF súborov.
-  2. Aplikácia extrahuje údaje, určí typ (Prijatá / Vystavená)
-     a zapíše ich do ZÁLOŽNEJ tabuľky (zaloha.xlsx).
-  3. V tabuľke na obrazovke záznam skontrolujete:
-       „Upraviť"  - opravíte chybne prečítané údaje,
-       „Schváliť" - záznam sa presunie do hlavnej tabuľky
-                    (faktury_prijate.xlsx / faktury_vystavene.xlsx)
-                    a vytvorí sa udalosť v Google Kalendári
-                    s pripomienkami 30, 20 a 10 dní pred splatnosťou.
+Workflow:
+  1. "Nahrať faktúru (PDF)": choose one or more PDF files.
+  2. The app extracts the data, decides the type (received / issued) and writes it to the STAGING
+  2. workbook (zaloha.xlsx).
+  3. Check the record in the on-screen table:
+       "Upraviť"  - correct misread values,
+       "Schváliť" - the record moves to the main workbook (faktury_prijate.xlsx /
+faktury_vystavene.xlsx) and a Google Calendar event is created with reminders 30, 20 and 10 days
+before the due date.
 """
 
 import json
@@ -31,13 +30,14 @@ from excel_manager import ExcelManager
 from calendar_manager import CalendarManager
 import extractor
 
-# pracovný priečinok = priečinok tohto skriptu
+# working folder = the folder of this script
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 def _nacitaj_konfig(cesta: str = "config.json") -> dict:
-    """Načíta config.json. Súbor nie je v gite (obsahuje cesty a nastavenia
-    konkrétneho počítača); ak chýba, používateľ dostane jasnú správu
-    namiesto tichého pádu pod pythonw."""
+    """
+    Loads config.json. The file is not in git (it holds paths and settings for one machine); if it
+    is missing, the user gets a clear message instead of a silent crash under pythonw.
+    """
     if not os.path.exists(cesta):
         koren = tk.Tk()
         koren.withdraw()
@@ -53,16 +53,14 @@ def _nacitaj_konfig(cesta: str = "config.json") -> dict:
 
 KONFIG = _nacitaj_konfig()
 
-# Polia zobrazené v dialógu „Upraviť“. Poradie aj popisy sa presne
-# zhodujú so stĺpcami v tabuľkách aplikácie (Došlé  Tuzemské aj Zahraničné
-#  a Odoslané), aby používateľ videl to isté hore v tabuľke aj tu.
-# „Číslo fa - naše" (interné DF/zDF referenčné číslo TDS) je samostatné
-# pole odlišné od „Číslo faktúry" (skutočné číslo faktúry dodávateľa)
-#  obe sa dajú upraviť samostatne. „Dodávateľ" má zmysel pri prijatých,
-# „Odberateľ" pri vystavených  dialóg je zdieľaný a používateľ v každom
-# zázname vyplní ten, ktorý naň sedí. Technické polia bez odpovedajúceho
-# stĺpca v tabuľke (Typ, Jazyk, IČO, Dátum vystavenia, DPH ako samostatná
-# suma, Mena, Variabilný symbol) sa v dialógu vôbec neuvádzajú.
+# Fields shown in the "Upraviť" (edit) dialog. Their order and labels match the columns of the app's
+# tables exactly (received, both domestic and foreign, and issued), so the user sees the same thing
+# in the table and here. "Číslo fa - naše" (TDS's internal DF/zDF reference number) is a separate
+# field from "Číslo faktúry" (the supplier's real invoice number); both can be edited. "Dodávateľ"
+# (supplier) applies to received invoices and "Odberateľ" (customer) to issued ones; the dialog is
+# shared and the user fills in whichever fits the record. Technical fields without a matching table
+# column (type, language, IČO, issue date, VAT as a separate amount, currency, variable symbol) are
+# not shown in the dialog at all.
 POLIA_UPRAVA = [
     "Číslo fa - naše",
     "Dátum prijatia faktúry",
@@ -79,25 +77,22 @@ POLIA_UPRAVA = [
     "Požiadavka na úhradu",
     "Zákazka",
     "Poznámka",
-    # Zádržné (dátum + suma) sa v dialógu vždy zobrazuje. Zmysel má IBA pri
-    # PRIJATÝCH faktúrach (dodávateľské  krátkodobé/dlhodobé zádržné, ktoré
-    # zákazník/odberateľ zadržal časť platby TDS-ke z dôvodu záruky). Pri
-    # vystavených faktúrach ich používateľ necháva prázdne. Zádržné dátumy
-    # sa typicky doplnia AŽ MESIACE po nahratí faktúry priamo v DF Exceli
-    # (subor_prijate, stĺpce 15-18) a synchronizujú
-    # do Google Kalendára tlačidlom „Synchronizuj kalendár" v hlavnom okne.
-    # Ak sú vyplnené už pri schvaľovaní, kalendárne udalosti (30/20/10 dní
-    # vopred + v deň) vzniknú okamžite pri stlačení „Schváliť".
+    # Retention (date + amount) is always shown in the dialog. It applies ONLY to RECEIVED invoices
+    # (short- and long-term retention a customer holds back from a payment to TDS as a guarantee);
+    # for issued invoices the user leaves it empty. Retention dates are usually added MONTHS after
+    # upload, directly in the DF workbook (subor_prijate, columns 15-18), and synced to Google
+    # Calendar with the "Synchronizuj kalendár" button in the main window. If they are already
+    # filled in on approval, the calendar events (30/20/10 days ahead and on the day) are created
+    # right away when "Schváliť" is pressed.
     "Zádržné krátkodobé",
     "Zádržné krátkodobé - suma",
     "Zádržné dlhodobé",
     "Zádržné dlhodobé - suma",
 ]
 
-# Preklad zobrazovaného popisu na skutočný kľúč v zázname (rovnaký prevod
-# ako MAPOVANIE_DOSLE / MAPOVANIE_ODOSLANE  napr. „Suma bez DPH v €" pole
-# v dialógu sa v zázname/zálohe volá „Suma bez DPH" bez symbolu meny,
-# „Zdaniteľné plnenie" je vnútri „Dátum dodania" a pod.).
+# Maps a displayed label to the real key in the record (the same mapping as MAPOVANIE_DOSLE /
+# MAPOVANIE_ODOSLANE: the dialog field "Suma bez DPH v €" is called "Suma bez DPH" in the record,
+# without the currency symbol; "Zdaniteľné plnenie" is stored as "Dátum dodania"; and so on).
 MAPOVANIE_UPRAVA = {
     "Číslo fa - naše": "Číslo fa - naše",
     "Dátum prijatia faktúry": "Dátum pridania",
@@ -120,10 +115,9 @@ MAPOVANIE_UPRAVA = {
     "Zádržné dlhodobé - suma": "Zádržné dlhodobé - suma",
 }
 
-# stĺpce v tabuľke „Odoslané“  presne stĺpce z data/faktury_vystavene.xlsx,
-# doplnené len o Stav (nevyhnutné pre schvaľovací proces). Hodnoty, ktoré
-# vzniknú až pri schválení (Úhrada, Zostatok, Zákazka), sú pred schválením
-# prázdne  presne mapovanie na kľúče zo zálohy je v MAPOVANIE_ODOSLANE.
+# columns of the "Odoslané" (issued) table: exactly the columns of data/faktury_vystavene.xlsx plus
+# Stav (needed for the approval process). Values that only exist after approval (payment, balance,
+# job) are empty before it; the exact mapping to staging keys is in MAPOVANIE_ODOSLANE.
 STLPCE_ODOSLANE = [
     "Číslo faktúry", "Odberateľ", "Suma bez DPH v €", "Suma s DPH v €",
     "Zdaniteľné plnenie", "Splatnosť", "Úhrada - dátum", "Úhrada - suma",
@@ -132,11 +126,10 @@ STLPCE_ODOSLANE = [
     "Zádržné dlhodobé", "Zádržné dlhodobé - suma v €",
     "Stav",
 ]
-# stĺpce, ktoré NESMÚ byť prázdne  ak niektorý chýba, riadok sa v tabuľke
-# zvýrazní na červeno (Úhrada/Zostatok/Požiadavka/Poznámka/Jazyk/Stav sú
-# zámerne vynechané, keďže pred schválením/platbou bývajú prázdne legitímne).
-# Zádržné dátumy TIEŽ NIE SÚ kritické  nie každá vystavená faktúra má
-# zmluvne dohodnuté zádržné (typické skôr pre stavebné/veľké projekty).
+# columns that MUST NOT be empty: if one is missing, the row is highlighted red (payment, balance,
+# payment request, note, language and status are left out on purpose, since they are legitimately
+# empty before approval or payment). Retention dates are NOT critical either: not every issued
+# invoice has contractual retention (it is more typical for construction or large projects).
 KRITICKE_ODOSLANE = ("Číslo faktúry", "Odberateľ", "Suma bez DPH v €",
                      "Suma s DPH v €", "Zdaniteľné plnenie", "Splatnosť", "Zákazka")
 MAPOVANIE_ODOSLANE = {
@@ -153,23 +146,22 @@ MAPOVANIE_ODOSLANE = {
     "Stav": "Stav",
 }
 
-# stĺpce v tabuľke „Došlé“  presne stĺpce z data/faktury_prijate.xlsx
-# (hárky Tuzemské/Zahraničné), doplnené o Stav. Jazyk sa v tabuľke
-# nezobrazuje, ale naďalej sa v zázname uchováva  rozhoduje, do ktorej
-# záložky (Tuzemské/Zahraničné) a hárku pri schválení faktúra patrí.
+# columns of the "Došlé" (received) table: exactly the columns of data/faktury_prijate.xlsx
+# (Tuzemské/Zahraničné sheets) plus Stav. The language is not shown in the table but is still stored
+# in the record: it decides which tab (domestic/foreign) and sheet the invoice belongs to on
+# approval.
 STLPCE_DOSLE = [
     "Číslo fa - naše", "Dátum prijatia faktúry", "Dodávateľ", "Číslo faktúry",
     "Suma bez DPH v €", "Suma s DPH v €", "Zdaniteľné plnenie", "Splatnosť",
     "Úhrada - dátum", "Úhrada - suma", "Zostatok k úhrade",
     "Požiadavka na úhradu", "Zákazka", "Poznámka",
-    "Stav",  # aplikačný stav CAKA/SCHVALENE, nie firemný U/Ú v Exceli
+    "Stav",  # the app's own state CAKA/SCHVALENE (pending/approved), not the company's U/Ú in Excel
 ]
 KRITICKE_DOSLE = ("Dodávateľ", "Číslo faktúry", "Suma bez DPH v €",
                   "Suma s DPH v €", "Zdaniteľné plnenie", "Splatnosť")
-# Zákazka je zámerne mimo kritických polí  mnoho tuzemských (aj cudzích)
-# faktúr zákazku/objednávku vôbec nemá a prázdne políčko je legitímny stav,
-# nie chyba extrakcie. Stĺpec sa zobrazuje aj tak, len sa naň neuplatňuje
-# červené zvýraznenie riadku ani sa naň nevyžaduje AI dopĺňanie.
+# The job number is deliberately not a critical field: many domestic (and foreign) invoices have no
+# job or order number at all, and an empty field is a legitimate state, not an extraction error. The
+# column is still shown, but no red highlight applies and no LLM fill-in is requested for it.
 KRITICKE_DOSLE_JEDNODUCHE = KRITICKE_DOSLE
 MAPOVANIE_DOSLE = {
     "Číslo fa - naše": "Číslo fa - naše", "Dátum prijatia faktúry": "Dátum pridania",
@@ -209,16 +201,15 @@ class Aplikacia(ttk.Window):
         self._vytvor_gui()
         self.obnov_tabulku()
 
-        # Predzohreje lokálny Ollama model na pozadí (1.9 GB váh sa musí
-        # zaviesť z disku do RAM  bez zohriatia by túto 30-90 s cenu
-        # zaplatilo až prvé uploadnutie faktúry, čo sa javí ako „aplikácia
-        # zamrzla“). Beží v samostatnom vlákne, aby GUI ostalo responzívne.
+        # Warms up the local Ollama model in the background (1.9 GB of weights must load from disk
+        # into RAM; without the warm-up the first invoice upload would pay those 30-90 s and the app
+        # would look frozen). Runs in its own thread so the GUI stays responsive.
         threading.Thread(target=self._zohrej_ai_na_pozadi, daemon=True).start()
 
-        # Po štarte na pozadí skontroluje, či sa čísla v DF Exceli medzitým
-        # ručne neprečíslovali oproti názvom archívnych PDF. Len upozorní
-        # v stavovom riadku  premenovanie si používateľ spustí tlačidlom,
-        # aby sa do zdieľaného archívu nikdy nesiahlo bez jeho vedomia.
+        # After start, checks in the background whether the numbers in the DF workbook were
+        # renumbered by hand compared with the archive PDF names. It only shows a note in the status
+        # bar; the user starts the renaming with a button, so the shared archive is never touched
+        # without them knowing.
         threading.Thread(target=self._skontroluj_sulad_na_pozadi,
                          daemon=True).start()
 
@@ -255,7 +246,7 @@ class Aplikacia(ttk.Window):
     # ------------------------------------------------------------ GUI
 
     def _vytvor_gui(self):
-        # -- hlavička --
+        # -- header --
         hlavicka = ttk.Frame(self, bootstyle="primary")
         hlavicka.pack(fill=X, side=TOP)
         vnutro = ttk.Frame(hlavicka, bootstyle="primary", padding=(20, 16))
@@ -308,7 +299,7 @@ class Aplikacia(ttk.Window):
         pridaj_tlacidlo("🔢  Zosúladiť čísla s Excelom", "info-outline",
                         self.zosulad_cisla)
 
-        # -- tabuľky (dve záložky: Odoslané / Došlé) --
+        # -- tables (two tabs: Odoslané / Došlé) --
         karta = ttk.Frame(self, padding=(20, 0, 20, 14))
         karta.pack(fill=BOTH, expand=True)
 
@@ -328,14 +319,14 @@ class Aplikacia(ttk.Window):
         self.tabulka_dosle_zahranicne = self._vytvor_zalozku_s_tabulkou(
             self.zalozky, "📥  Došlé - Zahraničné", STLPCE_DOSLE)
 
-        # -- stavový riadok --
+        # -- status bar --
         self.stav = tk.StringVar(value="ℹ️  Pripravené.")
         self.stav_label = ttk.Label(self, textvariable=self.stav, padding=(20, 10),
                                      bootstyle="secondary", font=("Segoe UI", 9))
         self.stav_label.pack(fill=X, side=BOTTOM)
 
     def _vytvor_zalozku_s_tabulkou(self, zalozky, nadpis, stlpce):
-        """Vytvorí jednu záložku s Treeview tabuľkou (+ posuvníky) a vráti ju."""
+        """Creates one tab with a Treeview table (+ scrollbars) and returns it."""
         _UZKE = ("Jazyk", "Zdaniteľné plnenie", "Splatnosť", "Úhrada - dátum",
                 "Úhrada - suma", "Zostatok k úhrade", "Stav", "Číslo fa - naše",
                 "Dátum prijatia faktúry")
@@ -369,13 +360,11 @@ class Aplikacia(ttk.Window):
         sb_h.grid(row=1, column=0, sticky="ew")
         tabulka.configure(yscrollcommand=sb_v.set, xscrollcommand=sb_h.set)
 
-        # Skutočné, súvislé zvislé oddeľovacie čiary medzi stĺpcami: keďže
-        # ttk.Treeview nekreslí orámovanie buniek, prekrývajú sa tenkými
-        # Frame prvkami cez celú výšku tabuľky (nie znakom v osobitnom
-        # stĺpci  ten by kvôli medzerám okolo textu v každom riadku
-        # vyzeral ako séria prerušovaných čiarok, nie ako jedna súvislá
-        # čiara). Prekresľujú sa pri zmene veľkosti okna, zmene šírky
-        # stĺpca aj pri vodorovnom rolovaní, aby zostali presne zarovnané.
+        # Real, continuous vertical separators between columns: ttk.Treeview does not draw cell
+        # borders, so thin Frame widgets are laid over the full height of the table (a character in
+        # a separate column would look like a series of dashes because of the padding around the
+        # text in each row, not like one continuous line). They are redrawn when the window is
+        # resized, a column width changes or the table scrolls horizontally, so they stay aligned.
         tabulka._stlpce = stlpce
         tabulka._ciary = []
         tabulka.bind("<Configure>", lambda e, t=tabulka: self._rozmiestni_ciary(t))
@@ -390,8 +379,10 @@ class Aplikacia(ttk.Window):
         return tabulka
 
     def _rozmiestni_ciary(self, tabulka):
-        """Prekreslí zvislé oddeľovacie čiary medzi stĺpcami na aktuálne
-        pozície (šírky stĺpcov, vodorovné rolovanie aj zmena veľkosti okna)."""
+        """
+        Redraws the vertical column separators at their current positions (column widths, horizontal
+        scrolling and window size).
+        """
         for c in tabulka._ciary:
             c.destroy()
         tabulka._ciary = []
@@ -415,18 +406,18 @@ class Aplikacia(ttk.Window):
                 tabulka._ciary.append(ciara)
 
     def _farba_zebra(self):
-        # výraznejší kontrast než pôvodné jemné odtiene  aby bolo pri
-        # pohľade na tabuľku hneď vidno, kde končí jeden riadok a začína
-        # ďalší, aj bez skutočných orámovaní buniek (tie ttk.Treeview
-        # nepodporuje)
+        # stronger contrast than the original subtle shades, so it is obvious where one row ends and
+        # the next begins, even without real cell borders (ttk.Treeview does not support them)
         return "#d7e0f5" if not self.tmava_tema else "#333c46"
 
     def _farba_chyba(self):
         return "#f8d0d0" if not self.tmava_tema else "#5a1f1f"
 
     def _chyba_riadok(self, stlpce: list, hodnoty: list, kriticke: tuple) -> bool:
-        """Vráti True, ak niektorý z kritických stĺpcov v riadku chýba
-        (je prázdny)  taký riadok sa vo Treeview zvýrazní na červeno."""
+        """
+        Returns True if any critical column in the row is missing (empty); such a row is highlighted
+        red in the Treeview.
+        """
         for nazov in kriticke:
             if not str(hodnoty[stlpce.index(nazov)]).strip():
                 return True
@@ -446,44 +437,41 @@ class Aplikacia(ttk.Window):
         self.stav_label.configure(bootstyle=styl)
 
     def _nastav_akcie(self, povolene: bool):
-        """Počas hromadného spracovania (na pozadí) zablokuje tlačidlá, aby
-        sa do zaloha.xlsx nezapisovalo z viacerých miest naraz."""
+        """
+        Disables the buttons during batch processing (in the background) so zaloha.xlsx is never
+        written from several places at once.
+        """
         for b in self.tlacidla:
             b.configure(state="normal" if povolene else "disabled")
 
     # ------------------------------------------------------------ akcie
 
     def obnov_tabulku(self):
-        # Pred každým obnovením sa čísla čakajúcich prijatých faktúr
-        # (DF/zDF RRRRNNN) preusporiadajú (resp. iba sa vyriešia kolízie
-        # a nevalidné hodnoty  ručne upravené platné čísla sa nedotknú,
-        # pozri preciskuj_cisla_archivu).
+        # Before every refresh the numbers of pending received invoices (DF/zDF YYYYNNN) are
+        # reordered (in fact only collisions and invalid values are fixed; valid numbers edited by
+        # hand are left alone, see preciskuj_cisla_archivu).
         self.excel.preciskuj_cisla_archivu()
-        # V hornom pohľade sa vždy zobrazujú IBA záznamy čakajúce na
-        # schválenie  schválené sú už v hlavných tabuľkách (odoslané /
-        # prijaté Tuzemské / Zahraničné) a zamietnuté sa mažú okamžite
-        # (aj s PDF súborom, pozri vymaz_zaznamy), takže tu nie je čo
-        # filtrovať cez prepínač.
+        # The top view always shows ONLY records pending approval: approved ones are already in the
+        # main workbooks (issued / received domestic / foreign), and rejected ones are deleted
+        # immediately (PDF included, see vymaz_zaznamy), so there is nothing to filter with a
+        # toggle.
         zaznamy = self.excel.nacitaj_zalohu(len_cakajuce=True)
-        # Neurčené (typ sa nepodarilo rozoznať) sa zobrazí v OBOCH záložkách,
-        # aby sa nestratilo a používateľ ho vedel cez „Upraviť“ opraviť.
+        # "Neurčené" (type not recognised) is shown in BOTH tabs so it does not get lost and the
+        # user can fix it via "Upraviť".
         odoslane = [z for z in zaznamy if z["Typ"] != "Prijatá"]
         dosle = [z for z in zaznamy if z["Typ"] != "Vystavená"]
-        # Neurčené (jazyk sa nepodarilo rozoznať) sa z rovnakého dôvodu ako
-        # vyššie zobrazí v OBOCH záložkách (Tuzemské aj Zahraničné), aby sa
-        # faktúra neschovala v nesprávnej karte  schváliť sa dá až po
-        # doplnení jazyka cez „Upraviť“ (pozri ExcelManager.schval).
+        # "Neurčené" (language not recognised) is shown in BOTH tabs (domestic and foreign) for the
+        # same reason, so the invoice does not hide in the wrong tab; it can only be approved once
+        # the language is filled in via "Upraviť" (see ExcelManager.schval).
         dosle_tuzemske = [z for z in dosle if z.get("Jazyk") != "iny"]
         dosle_zahranicne = [z for z in dosle if z.get("Jazyk") != "SK"]
 
-        # Zoraď zobrazenie tak, aby zodpovedalo poradiu, v akom dáta
-        # nakoniec padnú do hlavných tabuliek:
-        #   • Odoslané  vzostupne podľa „Číslo faktúry" (matching
-        #     _pridaj_vystavenu: v OF Exceli sa nové riadky vkladajú
-        #     v zoradenom poradí, tak isto ich chceme vidieť aj v app-e)
-        #   • Došlé (Tuzemské + Zahraničné)  vzostupne podľa
-        #     „Číslo fa - naše" (interné DF/zDF NNNN/RR), čo je stabilné
-        #     číslo a monotónne rastie s každým nahratím
+        # Sort the view to match the order in which the data finally lands in the main workbooks:
+        #   - Odoslané (issued): ascending by "Číslo faktúry" (matching _pridaj_vystavenu: new rows
+        # are inserted in sorted order in the OF workbook, so we want to see them that way in the
+        # app too)
+        #   - Došlé (received, domestic + foreign): ascending by "Číslo fa - naše" (internal DF/zDF
+        # NNNN/YY), a stable number that grows with every upload
         def _kluc_cislo_faktury(z):
             v = z.get("Číslo faktúry") or ""
             s = str(v).strip()
@@ -512,11 +500,10 @@ class Aplikacia(ttk.Window):
             self.tabulka_odoslane.insert("", "end", iid=z["ID"], values=hodnoty, tags=znacky)
         self._rozmiestni_ciary(self.tabulka_odoslane)
 
-        # Tuzemské  rovnaký plný layout ako Zahraničné (Číslo fa - naše,
-        # Dátum prijatia, Dodávateľ, Číslo faktúry, sumy, dátumy...).
-        # Zjednotená schéma s KRITICKE_DOSLE  Zákazka je zámerne mimo,
-        # takže riadok bez zákazky sa NEZOBRAZÍ ako chyba (mnoho tuzemských
-        # faktúr žiadnu objednávku/zákazku neobsahuje a je to legitímne).
+        # Domestic: the same full layout as foreign (Číslo fa - naše, date received, supplier,
+        # invoice number, amounts, dates...). A unified schema with KRITICKE_DOSLE: the job number
+        # is deliberately left out, so a row without a job is NOT shown as an error (many domestic
+        # invoices legitimately have no order or job number).
         self.tabulka_dosle_tuzemske.delete(*self.tabulka_dosle_tuzemske.get_children())
         for i, z in enumerate(dosle_tuzemske):
             hodnoty = [z.get(MAPOVANIE_DOSLE[s]) or "" if MAPOVANIE_DOSLE[s] else ""
@@ -528,7 +515,7 @@ class Aplikacia(ttk.Window):
             self.tabulka_dosle_tuzemske.insert("", "end", iid=z["ID"], values=hodnoty, tags=znacky)
         self._rozmiestni_ciary(self.tabulka_dosle_tuzemske)
 
-        # Zahraničné  plný layout s Dodávateľom a interným číslom
+        # Foreign: full layout with supplier and internal number
         self.tabulka_dosle_zahranicne.delete(*self.tabulka_dosle_zahranicne.get_children())
         for i, z in enumerate(dosle_zahranicne):
             hodnoty = [z.get(MAPOVANIE_DOSLE[s]) or "" if MAPOVANIE_DOSLE[s] else ""
@@ -541,7 +528,7 @@ class Aplikacia(ttk.Window):
         self._rozmiestni_ciary(self.tabulka_dosle_zahranicne)
 
     def _aktivna_tabulka(self):
-        """Vráti Treeview záložky, ktorá je práve zobrazená."""
+        """Returns the Treeview of the tab currently shown."""
         aktivny_tab = self.zalozky.index(self.zalozky.select())
         if aktivny_tab == 0:
             return self.tabulka_odoslane
@@ -574,16 +561,13 @@ class Aplikacia(ttk.Window):
         invoices_dir = KONFIG.get("priecinok_invoices", "invoices")
         os.makedirs(invoices_dir, exist_ok=True)
 
-        # Meno súboru tvaru „DF NNNN-RR.pdf" (napr. „DF0782-26.pdf") vzniká
-        # IBA archiváciou schválenej prijatej faktúry (excel_manager
-        # _premenuj_archivovane_pdf). Ak takýto súbor niekto omylom
-        # znova nahrá  napr. z priecinok_faktury cez „Otvoriť“  extrakcia
-        # z neho takmer vždy zlyhá (chýba súhrn faktúry, keďže PDF je iba
-        # archivovaný kus scanu), vzniká záznam s neplatnými sumami
-        # a hlavne DOSTANE NOVÉ „Číslo fa - naše" (napr. DF0782), ktoré po
-        # schválení natrvalo obsadí ďalšie číslo v sekvencii  vzniknú
-        # medzery, ktoré sa už nedajú zavrieť. Tieto súbory teda vôbec
-        # nespracujeme.
+        # A file name like "DF NNNN-YY.pdf" ("DF0782-26.pdf") only comes from archiving an approved
+        # received invoice (excel_manager _premenuj_archivovane_pdf). If someone uploads such a file
+        # again by mistake (e.g. from priecinok_faktury via "Otvoriť"), extraction almost always
+        # fails (the archived PDF is just part of a scan, without the invoice summary), the record
+        # gets invalid amounts and, worse, a NEW "Číslo fa - naše" (e.g. DF0782) that permanently
+        # takes the next number in the sequence once approved, leaving gaps that can never be
+        # closed. So these files are not processed at all.
         archivny_vzor = _re.compile(r"^z?DF\d{4}-\d{2}(?:\s*\(\d+\))?\.pdf$",
                                     _re.IGNORECASE)
 
@@ -591,9 +575,8 @@ class Aplikacia(ttk.Window):
         preskocene_archivne = []
         zruseno = False
         for i, cesta in enumerate(subory, start=1):
-            # Kontrola MEDZI faktúrami (nie uprostred spracovania jednej)
-            # aktuálne rozpracovaná faktúra sa vždy dokončí, aby v zálohe
-            # nezostal polovičný/nekonzistentný záznam.
+            # Checked BETWEEN invoices (not in the middle of one): the invoice in progress is always
+            # finished, so no half-written or inconsistent record stays in staging.
             if dialog.zrusene.is_set():
                 zruseno = True
                 break
@@ -606,7 +589,7 @@ class Aplikacia(ttk.Window):
             try:
                 data = extrahuj_fakturu(
                     cesta, KONFIG["ico_firmy"], KONFIG["varianty_nazvu"], KONFIG)
-                # presunúť pôvodný PDF súbor do priečinka invoices
+                # move the original PDF to the invoices folder
                 ciel = os.path.join(invoices_dir, nazov)
                 base, ext = os.path.splitext(ciel)
                 suffix = 1
@@ -665,12 +648,11 @@ class Aplikacia(ttk.Window):
         id_z = self._vybrane_id()
         if not id_z:
             return
-        # Pri PRIJATEJ faktúre sa spýtame, či sa PDF má skopírovať aj do
-        # priecinok_faktury_pre_skladnikov. Predvolene ÁNO (typický prípad
-        # faktúra za tovar, ktorý preberajú skladníci), NIE sa hodí pre
-        # faktúry za služby/réžiu/prenájom, ktoré sa skladníkov netýkajú.
-        # Vystavené faktúry sa do skladníckeho priečinka nikdy nekopírujú
-        # ide o cudzí koncept, neopýtame sa.
+        # For a RECEIVED invoice, ask whether the PDF should also be copied to
+        # priecinok_faktury_pre_skladnikov. The default is YES (the usual case: an invoice for goods
+        # the warehouse takes in); NO suits invoices for services, overheads or rent, which do not
+        # concern the warehouse. Issued invoices are never copied to the warehouse folder, so we do
+        # not ask.
         kopia_skladnikom = True
         zaznam_predbezne = next((z for z in self.excel.nacitaj_zalohu(False)
                                   if z["ID"] == id_z), None)
@@ -707,7 +689,7 @@ class Aplikacia(ttk.Window):
         sprava = (f"Faktúra {zaznam['Číslo faktúry'] or id_z} schválená a"
                   f" zapísaná do tabuľky „{zaznam['Typ']}“.")
 
-        # Google Kalendár
+        # Google Calendar
         vytvor = (KONFIG.get("kalendar_zapnuty", True)
                   and zaznam["Dátum splatnosti"]
                   and (zaznam["Typ"] == "Vystavená"
@@ -720,13 +702,11 @@ class Aplikacia(ttk.Window):
                         self.excel.nacitaj_vystavene())
                     sprava += (f" Kalendár aktualizovaný  spoločné pripomienky"
                                f" pred 30.6. obsahujú {pocet} faktúr.")
-                    # Zádržné (krátkodobé + dlhodobé)  IBA pri VYSTAVENÝCH.
-                    # Pre KAŽDÝ zadaný dátum vznikne až 4 samostatné celodenné
-                    # udalosti (30/20/10 dní vopred + v deň). Udalosti, ktorých
-                    # deň už uplynul, sa preskočia. Bežne sú tieto polia pri
-                    # schvaľovaní PRÁZDNE (dátumy sa dopĺňajú ručne mesiace
-                    # neskôr priamo v OF Exceli); pre neskoršie doplnenie
-                    # slúži tlačidlo „Synchronizuj kalendár" v hlavnom okne.
+                    # Retention (short- and long-term), for ISSUED invoices ONLY. EACH date entered
+                    # creates up to 4 separate all-day events (30/20/10 days ahead and on the day);
+                    # events whose day has passed are skipped. Usually these fields are EMPTY at
+                    # approval (the dates are added by hand months later in the OF workbook); the
+                    # "Synchronizuj kalendár" button in the main window handles that later addition.
                     zadrzne_pocet = 0
                     for typ_z, kluc_dat, kluc_suma in (
                         ("krátkodobé", "Zádržné krátkodobé", "Zádržné krátkodobé - suma"),
@@ -762,12 +742,11 @@ class Aplikacia(ttk.Window):
                 " vytvorí udalosť v kalendári."):
             return
 
-        # Pre KAŽDÚ prijatú faktúru sa dopredu opýtame, či sa PDF má
-        # skopírovať aj do priecinok_faktury_pre_skladnikov (typ. tovar
-        # áno, služby/réžia nie). Zbierame odpovede TU v hlavnom vlákne,
-        # PRED spustením batch-vlákna  messagebox musí bežať v hlavnom
-        # vlákne. Batch potom prebehne bez ďalšieho prerušenia.
-        # Vystavené faktúry sa neuvažujú (do skladov nikdy nekopírujú).
+        # For EACH received invoice, ask up front whether the PDF should also be copied to
+        # priecinok_faktury_pre_skladnikov (goods usually yes, services and overheads no). The
+        # answers are collected HERE in the main thread, BEFORE the batch thread starts, because a
+        # messagebox has to run in the main thread; the batch then runs without further
+        # interruptions. Issued invoices are not considered (never copied to the warehouse).
         kopie_skladnikom = {}  # {id_zaznamu: True/False}
         for z in cakajuce:
             if z.get("Typ") != "Prijatá":
@@ -782,7 +761,7 @@ class Aplikacia(ttk.Window):
                 "  NIE  ide LEN do priecinok_faktury (služby/réžia)\n"
                 "  ZRUŠIŤ  preruší hromadné schvaľovanie")
             if odp is None:
-                # user cancelled  celý batch sa zruší
+                # user cancelled: the whole batch is cancelled
                 return
             kopie_skladnikom[z["ID"]] = odp
 
@@ -805,9 +784,9 @@ class Aplikacia(ttk.Window):
             self.after(0, dialog.aktualizuj, i - 1,
                       f"Schvaľujem: {zaznam_riadok['Číslo faktúry'] or id_z}")
             try:
-                # Pre prijaté použijeme odpoveď zozbieranú v schval_vsetky
-                # (kopie_skladnikom[id_z]); pre vystavené je parameter
-                # ignorovaný (Vystavené nikdy nejdú do skladníkov).
+                # For received invoices, use the answer collected in schval_vsetky
+                # (kopie_skladnikom[id_z]); for issued ones the parameter is ignored (issued
+                # invoices never go to the warehouse folder).
                 kopia_sklad = kopie_skladnikom.get(id_z, True)
                 zaznam = self.excel.schval(id_z, kopia_skladnikom=kopia_sklad)
             except ValueError as e:
@@ -886,13 +865,13 @@ class Aplikacia(ttk.Window):
             self._nastav_stav(f"Záznam {id_z} bol zamietnutý.", styl="danger", ikona="❌")
 
     def presun_do_zalozky(self):
-        """Manuálny presun vybraného záznamu do inej záložky (Odoslané /
-        Došlé-Tuzemské / Došlé-Zahraničné). Použije sa v prípade, keď
-        extrakcia zle rozpozná typ (Prijatá vs Vystavená) alebo jazyk
-        (SK vs iný)  napr. faktúra vyzerá ako vystavená kvôli tomu, že
-        TDS je uvedené ako Dodávateľ v OCR chybe. Prepíše v zálohe polia
-        „Typ" a „Jazyk"; pri presune DO záložky prijatých pridelí interné
-        DF/zDF NNNN/RR číslo (ak ho záznam ešte nemá)."""
+        """
+        Moves the selected record to another tab by hand (Odoslané / Došlé-Tuzemské /
+        Došlé-Zahraničné), for when extraction gets the type (received vs. issued) or the language
+        (SK vs. other) wrong, e.g. an invoice looks issued because an OCR error shows TDS as the
+        supplier. Overwrites the "Typ" and "Jazyk" fields in staging; when moved INTO the received
+        tab, assigns an internal DF/zDF NNNN/YY number (if the record does not have one yet).
+        """
         id_z = self._vybrane_id()
         if not id_z:
             return
@@ -906,14 +885,15 @@ class Aplikacia(ttk.Window):
         DialogPresun(zaznam, aktualna, self._uloz_presun)
 
     def _uloz_presun(self, id_z: str, typ: str, jazyk: str):
-        """Zapíše nový Typ/Jazyk do zálohy; ak sa mení na Prijatú a záznam
-        ešte nemá „Číslo fa - naše", prizná mu ho tu (rovnakou logikou
-        ako pri nahrávaní faktúry cez _rezervuj_cislo_archivu)."""
+        """
+        Writes the new type/language to staging; if it changes to received and the record has no
+        "Číslo fa - naše" yet, assigns one here (with the same logic as on upload, via
+        _rezervuj_cislo_archivu).
+        """
         from openpyxl import load_workbook
         nove = {"Typ": typ, "Jazyk": jazyk}
-        # Ak je nový typ Prijatá a záznam nemá pridelené DF/zDF číslo,
-        # rezervujeme ho teraz. Používame priamo _rezervuj_cislo_archivu
-        # (rovnaké volanie ako pri pôvodnom nahratí).
+        # If the new type is received and the record has no DF/zDF number, reserve one now, using
+        # _rezervuj_cislo_archivu directly (the same call as on the original upload).
         if typ == "Prijatá" and jazyk in ("SK", "iny"):
             zaznam = next((z for z in self.excel.nacitaj_zalohu(False)
                            if z["ID"] == id_z), None)
@@ -923,8 +903,8 @@ class Aplikacia(ttk.Window):
                 cislo = self.excel._rezervuj_cislo_archivu(ws, jazyk)
                 wb.close()
                 nove["Číslo fa - naše"] = cislo
-        # Ak sa mení Prijatá → Vystavená, DF číslo v zálohe ponecháme
-        # (pre audit); Vystavená ho aj tak nepoužíva pri zápise do OF.
+        # When received changes to issued, the DF number in staging is kept (for the audit trail);
+        # issued invoices do not use it when written to the OF workbook anyway.
         self.excel.uprav_zaznam(id_z, nove)
         self.obnov_tabulku()
         popis = typ + (f" / {jazyk}" if typ == "Prijatá" else "")
@@ -932,13 +912,13 @@ class Aplikacia(ttk.Window):
                           styl="info", ikona="🔄")
 
     def synchronizuj_kalendar(self):
-        """Prečíta hlavnú tabuľku vystavených faktúr a zosynchronizuje
-        Google Kalendár  vytvorí/aktualizuje udalosti zádržných tam, kde
-        sú v Exceli vyplnené dátumy, a zmaže tie, kde dátum bol
-        vymazaný. Slúži na prípad, keď účtovník doplní zádržné dátumy
-        priamo v Exceli (týždne/mesiace po nahratí faktúry) a chce,
-        aby sa objavili aj v kalendári s pripomienkami 30/20/10 dní
-        vopred a v deň samotný."""
+        """
+        Reads the main issued-invoices workbook and syncs Google Calendar: creates or updates
+        retention events where Excel has dates filled in, and deletes those whose date was removed.
+        For when the accountant adds retention dates directly in Excel (weeks or months after the
+        invoice was uploaded) and wants them in the calendar with reminders 30/20/10 days ahead and
+        on the day.
+        """
         if not KONFIG.get("kalendar_zapnuty", True):
             messagebox.showinfo(
                 "Synchronizácia kalendára",
@@ -953,8 +933,8 @@ class Aplikacia(ttk.Window):
     def _synchronizuj_kalendar_vlakno(self):
         stats, err = None, None
         try:
-            # Zádržné dátumy sa doplňujú v hárku vystavených faktúr
-            # („Odoslané faktúry - tuzemské" v OF exceli).
+            # Retention dates are filled in on the issued-invoices sheet ("Odoslané faktúry -
+            # tuzemské" in the OF workbook).
             faktury = self.excel.nacitaj_vystavene()
             stats = self.kalendar.synchronizuj_zadrzne_vystavene(faktury)
         except Exception as e:
@@ -987,14 +967,15 @@ class Aplikacia(ttk.Window):
                           ikona="⚠️" if stats["chyby"] else "🗓️")
 
     def doplň_zakazky_do_nazvov(self):
-        """Prečíta DF Excel (Tuzemské + Zahraničné) a pre každý riadok
-        s vyplnenou Zákazkou premenuje archívny PDF v priecinok_faktury
-        (aj v priecinok_faktury_pre_skladnikov) z tvaru „DFNNNN-RR.pdf"
-        alebo „DFNNNN-RR_STARAZAKAZKA.pdf" na „DFNNNN-RR_ZAKAZKA.pdf".
+        """
+        Reads the DF workbook (domestic + foreign) and, for each row with a job number filled in,
+        renames the archive PDF in priecinok_faktury (and in priecinok_faktury_pre_skladnikov) from
+        "DFNNNN-YY.pdf" or "DFNNNN-YY_OLDJOB.pdf" to "DFNNNN-YY_JOB.pdf".
 
-        Prázdne Zákazky sa preskočia (súbor ostane v aktuálnom mene).
-        Ak sa Zákazka v Exceli medzičasom zmenila, súbor sa premenuje na
-        novú hodnotu. Ak PDF neexistuje, riadok sa preskočí (nie chyba)."""
+        Empty job numbers are skipped (the file keeps its current name). If the job number changed
+        in Excel in the meantime, the file is renamed to the new value. If the PDF does not exist,
+        the row is skipped (not an error).
+        """
         if not messagebox.askyesno(
                 "Doplniť zákazky do názvov PDF",
                 "Prečítam DF Excel a pre KAŽDÝ riadok s vyplnenou Zákazkou"
@@ -1016,7 +997,7 @@ class Aplikacia(ttk.Window):
         self.after(0, self._po_doplneni_zakaziek, stats, err)
 
     def _doplň_zakazky_do_nazvov_impl(self):
-        """Vlastná implementácia. Vracia dict statistík."""
+        """The actual implementation. Returns a dict of statistics."""
         import re as _re
         from excel_manager import (HAROK_TUZEMSKE, HAROK_ZAHRANICNE,
                                    STLPCE_PRIJATA_TUZEMSKE,
@@ -1030,9 +1011,9 @@ class Aplikacia(ttk.Window):
                 "V config.json chýba 'priecinok_faktury'  neviem, kde sú "
                 "archívne PDF súbory.")
 
-        # Číslo fa - naše je v obidvoch hárkoch stĺpec 1, Zákazka je v obidvoch
-        # stĺpec 13 (podľa STLPCE_PRIJATA_*). Načítame ich priamo z Excelu
-        # namiesto nacitaj_prijate()  potrebujeme presné indexy stĺpcov.
+        # Číslo fa - naše is column 1 and the job number column 13 in both sheets (see
+        # STLPCE_PRIJATA_*). They are read directly from Excel instead of via nacitaj_prijate(),
+        # because the exact column indexes are needed.
         wb = load_workbook(KONFIG["subor_prijate"], read_only=True)
         paries = []  # list of (df_cislo, zakazka)
         for harok, kluce in (
@@ -1041,7 +1022,7 @@ class Aplikacia(ttk.Window):
         ):
             if harok not in wb.sheetnames:
                 continue
-            idx_cislo = 1  # „Číslo fa - naše"
+            idx_cislo = 1  # "Číslo fa - naše"
             idx_zakazka = kluce.index("Zákazka") + 1
             ws = wb[harok]
             for r in ws.iter_rows(min_row=PRVY_RIADOK_DAT, values_only=True):
@@ -1053,16 +1034,16 @@ class Aplikacia(ttk.Window):
                     paries.append((cn, zk))
         wb.close()
 
-        # Pre každý (df_cislo, zakazka) nájdeme archívny súbor a premenujeme
+        # For each (df_cislo, zakazka), find the archive file and rename it
         stats = {"premenovane": 0, "bez_zmeny": 0, "chybajuce": 0,
                  "prazdna_zakazka": 0, "chyby": []}
 
-        # Regex, ktorý rozpozná meno súboru s prípadne existujúcou zakazkou:
-        #   DF0796-26.pdf            → base = "DF0796-26"
-        #   DF0796-26_RE26.pdf       → base = "DF0796-26", stara_zakazka = "RE26"
-        #   DF0796-26_vid.fa.pdf     → base = "DF0796-26", stara_zakazka = "vid.fa"
-        # DF/zDF, potom 4 cifry, „-", 2 cifry, voliteľne „_" + čokoľvek,
-        # potom „.pdf" (case-insensitive).
+        # Regex that recognises a file name with an optional existing job number:
+        #   DF0796-26.pdf            -> base = "DF0796-26"
+        #   DF0796-26_RE26.pdf       -> base = "DF0796-26", old job = "RE26"
+        #   DF0796-26_vid.fa.pdf     -> base = "DF0796-26", old job = "vid.fa"
+        # DF/zDF, then 4 digits, "-", 2 digits, optionally "_" + anything, then ".pdf"
+        # (case-insensitive).
         def _rozober(subor, predpona):
             m = _re.match(
                 rf"^({_re.escape(predpona)}\d{{4}}-\d{{2}})(?:_(.+))?\.(pdf)$",
@@ -1072,7 +1053,7 @@ class Aplikacia(ttk.Window):
             return m.group(1), (m.group(2) or ""), m.group(3)
 
         def _cielove_meno(df_cislo, zakazka):
-            # df_cislo je „DF0796/26"  na disku má formu s „-" a bez lomky
+            # df_cislo is "DF0796/26"; on disk it has a "-" instead of the slash
             m = _re.match(r"^(z?DF)(\d{4})/(\d{2})$", df_cislo, _re.IGNORECASE)
             if not m:
                 return None, None
@@ -1096,14 +1077,14 @@ class Aplikacia(ttk.Window):
                 try:
                     if not os.path.isdir(priecinok):
                         continue
-                    # Nájdi existujúci súbor s tou istou DF-časťou názvu
+                    # Find the existing file with the same DF part of the name
                     nasiel = None
                     for f in os.listdir(priecinok):
                         rozobrany = _rozober(f, predpona)
                         if not rozobrany:
                             continue
-                        base = rozobrany[0]  # DFNNNN-RR časť názvu
-                        # zhoda len na základovej DFNNNN-RR časti
+                        base = rozobrany[0]  # the DFNNNN-YY part of the name
+                        # match on the DFNNNN-YY base only
                         m2 = _re.match(r"^(z?DF)(\d{4})/(\d{2})$",
                                        df_cislo, _re.IGNORECASE)
                         if m2 and base.lower() == f"{m2.group(1)}{m2.group(2)}-{m2.group(3)}".lower():
@@ -1117,8 +1098,8 @@ class Aplikacia(ttk.Window):
                         continue
                     stara_cesta = os.path.join(priecinok, nasiel)
                     nova_cesta = os.path.join(priecinok, ciel_meno)
-                    # Ak by tam náhodou už existoval iný súbor s tým istým
-                    # cieľovým menom, radšej neprepisujme
+                    # If another file with the same target name already happens to exist there, do
+                    # not overwrite it
                     if os.path.exists(nova_cesta):
                         stats["chyby"].append(
                             f"{df_cislo}: cieľový súbor už existuje: {ciel_meno}")
@@ -1129,12 +1110,14 @@ class Aplikacia(ttk.Window):
                     stats["chyby"].append(f"{df_cislo}: {e}")
         return stats
 
-    # -------------------------------------- zosúladenie čísel s Excelom
+    # -------------------------------------- syncing numbers with Excel
 
     def zosulad_cisla(self):
-        """Zistí, ktoré archívne PDF sa volajú inak, než aké číslo má daná
-        faktúra v DF Exceli (vznikne to, keď sa čísla v Exceli ručne
-        prečíslujú), ukáže zoznam a po potvrdení súbory premenuje."""
+        """
+        Finds archive PDFs named differently from the number the invoice has in the DF workbook
+        (this happens when numbers in Excel are renumbered by hand), shows the list and renames the
+        files after confirmation.
+        """
         self._nastav_akcie(False)
         self._nastav_stav("⏳  Porovnávam archív s číslami v Exceli…",
                           styl="info", ikona="⏳")
@@ -1244,8 +1227,10 @@ class Aplikacia(ttk.Window):
                           ikona="⚠️" if stats["chyby"] else "🏷️")
 
     def vymaz_vsetky(self):
-        """Vymaže všetky záznamy, ktoré sú momentálne zobrazené v aktívnej karte.
-        Zmeny sa aplikujú v záložnej tabuľke (`subor_zaloha`)."""
+        """
+        Deletes all records currently shown in the active tab. The changes are applied to the
+        staging workbook (`subor_zaloha`).
+        """
         tabulka = self._aktivna_tabulka()
         ids = list(tabulka.get_children())
         if not ids:
@@ -1264,15 +1249,17 @@ class Aplikacia(ttk.Window):
 
 
 class ProgressDialog(ttk.Toplevel):
-    """Modálne okno s priebehom pre hromadné operácie (nahrávanie, schvaľovanie),
-    ktoré bežia na pozadí, aby aplikácia počas nich nezamrzla."""
+    """
+    Modal progress window for batch operations (uploading, approving) that run in the background so
+    the app does not freeze.
+    """
 
     def __init__(self, titulok: str, maximum: int):
         super().__init__(title=titulok, resizable=(False, False))
-        # Krížik (X) aj tlačidlo „Zrušiť“ vedú na rovnakú žiadosť o zrušenie
-        # (s potvrdením)  kým sa vlákno na pozadí nezastaví samo (pozri
-        # zrusene nižšie), okno sa nezatvorí, aby sa nestratil odkaz naň
-        # a aby prebiehajúca faktúra dokončila zápis (nie polovičný riadok).
+        # The close button (X) and "Zrušiť" both lead to the same cancellation request (with a
+        # confirmation). The window does not close until the background thread stops by itself (see
+        # zrusene below), so the reference to it is not lost and the invoice in progress finishes
+        # writing (no half-written row).
         self.protocol("WM_DELETE_WINDOW", self._ziadost_o_zrusenie)
         self.zrusene = threading.Event()
 
@@ -1299,12 +1286,11 @@ class ProgressDialog(ttk.Toplevel):
                                      command=self._ziadost_o_zrusenie)
         self.btn_zrusit.pack(anchor="e", pady=(14, 0))
 
-        # Odhadovaný čas sa prepočítava KAŽDÚ SEKUNDU sám osebe (pozri
-        # _tikni), nie len keď sa dokončí faktúra  spracovanie jednej
-        # faktúry môže trvať od pár sekúnd po vyše minúty (podľa toho, či
-        # bolo treba volať aj lokálnu AI), takže pri aktualizácii len po
-        # dokončení by nápis „počíta sa…“ pri prvej faktúre visel
-        # nehybne aj cez minútu  vyzeralo by to, akoby aplikácia zamrzla.
+        # The estimated time is recalculated EVERY SECOND on its own (see _tikni), not only when an
+        # invoice finishes: one invoice can take from a few seconds to over a minute (depending on
+        # whether the local LLM had to be called), so with updates only after each invoice the
+        # "počíta sa..." label would sit still for over a minute on the first invoice and the app
+        # would look frozen.
         self.cas_start = time.time()
         self.dokoncene = 0
         self.hotovo = False
@@ -1317,11 +1303,12 @@ class ProgressDialog(ttk.Toplevel):
         self._tikni()
 
     def _ziadost_o_zrusenie(self):
-        """Po potvrdení nastaví príznak zrušenia (threading.Event), ktorý si
-        vlákno na pozadí kontroluje MEDZI jednotlivými faktúrami  aktuálne
-        spracúvaná faktúra sa vždy dokončí (nezostane polovičný zápis),
-        ale ďalšia už nezačne. Okno sa nezatvára tu; zavrie ho volajúci kód
-        (napr. _po_nahrati) hneď ako sa vlákno naozaj zastaví."""
+        """
+        After confirmation, sets the cancellation flag (threading.Event), which the background
+        thread checks BETWEEN invoices: the invoice in progress always finishes (no half-written
+        record), but the next one does not start. The window is not closed here; the calling code
+        (e.g. _po_nahrati) closes it as soon as the thread has really stopped.
+        """
         if self.zrusene.is_set():
             return
         if not messagebox.askyesno(
@@ -1344,9 +1331,11 @@ class ProgressDialog(ttk.Toplevel):
         self.update_idletasks()
 
     def _tikni(self):
-        """Prepočíta a zobrazí uplynutý/odhadovaný čas  volá sa sama každú
-        sekundu (nezávisle od toho, kedy sa dokončí spracovanie faktúry),
-        aby bol vidno živý, tikajúci čas namiesto nehybného nápisu."""
+        """
+        Recalculates and shows the elapsed and estimated time. Calls itself every second
+        (independently of when an invoice finishes), so the user sees a live, ticking clock instead
+        of a frozen label.
+        """
         if not self.winfo_exists():
             return
         uplynulo = time.time() - self.cas_start
@@ -1375,10 +1364,11 @@ class ProgressDialog(ttk.Toplevel):
 
 
 class DialogPresun(ttk.Toplevel):
-    """Malé okno na manuálny presun záznamu medzi 3 záložkami. Volá
-    'po_ulozeni(id, typ, jazyk)' s cieľovými hodnotami. Pri Vystavená
-    sa jazyk ignoruje (posielame 'SK' ako neutrálnu hodnotu; vystavené
-    faktúry jazykom nerozlišujeme)."""
+    """
+    Small window for moving a record between the 3 tabs by hand. Calls 'po_ulozeni(id, typ, jazyk)'
+    with the target values. For issued invoices the language is ignored ('SK' is sent as a neutral
+    value; issued invoices are not split by language).
+    """
 
     def __init__(self, zaznam, aktualna_popis, po_ulozeni):
         super().__init__(title=f"Presunúť záznam {zaznam['ID']}",
@@ -1398,7 +1388,7 @@ class DialogPresun(ttk.Toplevel):
         ttk.Label(obal, text=f"Faktúra: {cislo_desc}  {odberatel}",
                   bootstyle="secondary").pack(anchor="w", pady=(0, 14))
 
-        # RadioButton: 3 cieľové varianty
+        # RadioButton: the 3 targets
         self.volba = tk.StringVar(value="")
         volby = [
             ("odoslana", "📤  Odoslané (vystavené)"),
@@ -1441,7 +1431,7 @@ class DialogPresun(ttk.Toplevel):
 
 
 class DialogUprava(ttk.Toplevel):
-    """Okno na úpravu záznamu pred schválením."""
+    """Window for editing a record before approval."""
 
     def __init__(self, zaznam, po_ulozeni):
         super().__init__(title=f"Úprava záznamu {zaznam['ID']}",
@@ -1460,11 +1450,10 @@ class DialogUprava(ttk.Toplevel):
         for i, nazov in enumerate(POLIA_UPRAVA, start=1):
             ttk.Label(obal, text=nazov + ":").grid(
                 row=i, column=0, sticky="e", padx=(0, 10), pady=4)
-            # popisky v dialógu sú „zobrazované" názvy zo stĺpcov v tabuľkách
-            # aplikácie (napr. „Suma bez DPH v €", „Zdaniteľné plnenie")
-            # v samotnom zázname/zálohe sú tie hodnoty pod inými kľúčmi (napr.
-            # „Suma bez DPH", „Dátum dodania"), takže sa musia preložiť
-            # cez MAPOVANIE_UPRAVA (rovnaké mapovanie, aké používajú tabuľky).
+            # The labels in the dialog are the "display" names of the app's table columns ("Suma bez
+            # DPH v €", "Zdaniteľné plnenie"); in the record itself the values sit under other keys
+            # ("Suma bez DPH", "Dátum dodania"), so they have to be translated via MAPOVANIE_UPRAVA
+            # (the same mapping the tables use).
             zaznam_kluc = MAPOVANIE_UPRAVA.get(nazov, nazov)
             w = ttk.Entry(obal, width=39, bootstyle="primary")
             w.insert(0, str(zaznam.get(zaznam_kluc, "") or ""))
@@ -1486,8 +1475,8 @@ class DialogUprava(ttk.Toplevel):
         self.grab_set()
 
     def uloz(self):
-        # Preložiť z „zobrazovaných" popisov v dialógu späť na skutočné
-        # kľúče v zázname/zálohe (rovnaké mapovanie ako pri načítaní vyššie).
+        # Translate the dialog's "display" labels back to the real record keys (the same mapping as
+        # when loading above).
         hodnoty = {MAPOVANIE_UPRAVA.get(n, n): w.get().strip()
                    for n, w in self.polia.items()}
         self.po_ulozeni(self.zaznam["ID"], hodnoty)

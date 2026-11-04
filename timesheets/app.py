@@ -1,24 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-app.py  Spracovanie dochádzky TDS s.r.o.
+app.py - timesheet processing for TDS s.r.o.
 
-Hlavná aplikácia (Tkinter + ttkbootstrap). Spustenie:  python app.py  (alebo start.bat)
+The main application (Tkinter + ttkbootstrap). Run:  python app.py  (or start.bat)
 
-Postup práce:
-  1. „Načítať výkaz (PDF)"  vyberiete jeden alebo viac naskenovaných
-     výkazov (PRACOVNÝ VÝKAZ).
-  2. Aplikácia rozpozná meno/mesiac/rok a hodiny pri jednotlivých
-     zákazkách cez Gemini API (google-genai, bezplatný model
-     "gemini-flash-latest"  potrebuje internet a API kľúč v
-     gemini_api_key.txt, zdarma na https://aistudio.google.com/apikey).
-     Bez pripojenia/kľúča sa použije lokálny Tesseract (rýchly, ale menej
-     presný na rukopise). Aj tak nie je neomylné  vždy skontrolujte.
-  3. V pravom paneli sa zobrazí CELÁ tabuľka (deň 1-31 pre každú
-     zákazku) ako upraviteľné polia  skontrolujte ich oproti originálu
-     („🔍 Zobraziť naskenovanú stranu") a opravte, čo program prečítal zle.
-  4. „✅ Schváliť"  zapíše hodiny priamo do zdieľaného mzdového súboru
-     (bunka „Hod" v bloku daného zamestnanca, na hárku príslušného
-     mesiaca) podľa čísla zákazky zo SUMAR-u.
+Workflow:
+  1. "Načítať výkaz (PDF)": choose one or more scanned timesheets (PRACOVNÝ VÝKAZ).
+  2. The app reads the name, month and year and the hours per job with the Gemini API (google-genai,
+  2. the free model "gemini-flash-latest"; needs internet and an API key in gemini_api_key.txt, free
+  2. at https://aistudio.google.com/apikey). Without a connection or key it falls back to local
+  2. Tesseract (fast, but less accurate on handwriting). Neither is infallible: always check.
+  3. The right panel shows the WHOLE table (days 1-31 for each job) as editable fields: check them
+  3. against the original ("🔍 Zobraziť naskenovanú stranu") and fix whatever was misread.
+  4. "✅ Schváliť" writes the hours straight into the shared payroll workbook (the "Hod" cell in the
+  4. employee's block, on the sheet of that month) by the job number from SUMAR.
 """
 
 import json
@@ -46,9 +41,10 @@ import extractor
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 def _nacitaj_konfig(cesta: str = "config.json") -> dict:
-    """Načíta config.json. Súbor nie je v gite (obsahuje cesty a nastavenia
-    konkrétneho počítača); ak chýba, používateľ dostane jasnú správu
-    namiesto tichého pádu pod pythonw."""
+    """
+    Loads config.json. The file is not in git (it holds paths and settings for one machine); if it
+    is missing, the user gets a clear message instead of a silent crash under pythonw.
+    """
     if not os.path.exists(cesta):
         koren = tk.Tk()
         koren.withdraw()
@@ -120,12 +116,13 @@ class Aplikacia(ttk.Window):
         self.tmava_tema = False
 
         self.mzdy_cache = MzdyCache(KONFIG)
-        self.cakajuce = []       # zoznam rozpracovaných výkazov (dict)
+        self.cakajuce = []       # list of timesheets in progress (dict)
         self.aktualny_index = None
         self._grid_widgety = None
         self._zakazky_cache = {}
-        self._zname_zakazky_cache = {}  # rok -> množina čísel zákaziek zo SUMAR, pre živé zvýraznenie
-        self._nahlad_foto = None  # udrž referenciu, inak ju GC zahodí
+        # year -> set of job numbers from SUMAR, for live highlighting
+        self._zname_zakazky_cache = {}
+        self._nahlad_foto = None  # keep a reference, otherwise GC drops it
 
         self._vytvor_gui()
         self._obnov_zoznam()
@@ -135,11 +132,12 @@ class Aplikacia(ttk.Window):
             pass
 
     def report_callback_exception(self, exc, val, tb):
-        """Tkinter volá toto pri KAŽDEJ neošetrenej chybe v tlačidle/evente
-        (oficiálny hák, nahrádza predvolené správanie = len tichý výpis na
-        stderr). Appka beží cez pythonw.exe (start.bat), ktoré nemá konzolu
-        a stderr jednoducho zahodí - bez tohto by kliknutie na tlačidlo pri
-        neočakávanej chybe vyzeralo, akoby "neurobilo nič"."""
+        """
+        Tkinter calls this for EVERY unhandled error in a button or event handler (the official
+        hook; the default only prints quietly to stderr). The app runs under pythonw.exe
+        (start.bat), which has no console and simply discards stderr, so without this a click that
+        hit an unexpected error would look as if it "did nothing".
+        """
         text = "".join(traceback.format_exception(exc, val, tb))
         _zapis_chybu(text)
         messagebox.showerror("Chyba aplikácie",
@@ -187,7 +185,7 @@ class Aplikacia(ttk.Window):
         pridaj("❌  Zamietnuť", "danger-outline", self.zamietni)
         pridaj("📊  Otvoriť súhrn (Excel)", "secondary", self.otvor_excel)
 
-        # -- hlavná plocha: zoznam vľavo, detail/úprava vpravo --
+        # -- main area: list on the left, detail/editing on the right --
         stred = ttk.Panedwindow(self, orient="horizontal")
         stred.pack(fill=BOTH, expand=True, padx=20, pady=(0, 10))
 
@@ -230,14 +228,13 @@ class Aplikacia(ttk.Window):
             b.configure(state="normal" if povolene else "disabled")
 
     def _cesta_mzdy(self, rok=None) -> str:
-        """Cesta k sieťovému mzdovému zošitu pre daný rok - každý rok má
-        vlastný súbor (napr. "Mzdy 2026.xlsx", "Mzdy 2027.xlsx", ...).
-        Šablóna cesty v config.json obsahuje "{rok}" na mieste, kam sa rok
-        doplní; chýbajúci rok (napr. výkaz ešte nemá rozpoznaný/potvrdený
-        rok) sa nahradí aktuálnym kalendárnym rokom ako najpravdepodobnejším
-        predvoleným. Ak šablóna žiadne "{rok}" neobsahuje (staršia/pevná
-        konfigurácia s jedným súborom pre všetky roky), .format() ju vráti
-        bez zmeny."""
+        """
+        Path to the network payroll workbook for the given year: each year has its own file ("Mzdy
+        2026.xlsx", "Mzdy 2027.xlsx", ...). The path template in config.json has "{rok}" where the
+        year goes; a missing year (the timesheet has no recognised or confirmed year yet) is
+        replaced by the current calendar year as the most likely default. If the template has no
+        "{rok}" (an older fixed config with one file for all years), .format() returns it unchanged.
+        """
         return KONFIG["subor_mzdy_siet"].format(rok=rok or datetime.now().year)
 
     def _rok_aktualneho_vykazu(self):
@@ -246,12 +243,13 @@ class Aplikacia(ttk.Window):
         return None
 
     def _ziskaj_zname_zakazky(self, rok=None):
-        """Množina čísel zákaziek, ktoré SUMAR (pre daný rok) pozná - pre
-        živé zvýraznenie v mriežke. Načíta sa raz za rok za beh appky
-        (sieťové čítanie), nie pri každom zobrazení výkazu. Pri chybe (napr.
-        výpadok siete) vráti None a živé zvýraznenie sa jednoducho preskočí -
-        záverečná kontrola pri schvaľovaní vždy číta čerstvo (pre presne ten
-        rok daného výkazu), takže bezpečnosť zápisu tým netrpí."""
+        """
+        The set of job numbers SUMAR knows (for the given year), for live highlighting in the grid.
+        Loaded once per year per run of the app (a network read), not every time a timesheet is
+        shown. On an error (e.g. a network outage) returns None and the live highlighting is simply
+        skipped; the final check on approval always reads fresh (for exactly that timesheet's year),
+        so the safety of the write does not suffer.
+        """
         rok = rok or datetime.now().year
         if rok in self._zname_zakazky_cache:
             return self._zname_zakazky_cache[rok]
@@ -292,7 +290,7 @@ class Aplikacia(ttk.Window):
             return
         self._zobraz_vykaz(int(vybrane[0]))
 
-    # ------------------------------------------------------------ načítanie PDF
+    # ------------------------------------------------------------ loading PDFs
 
     def nacitaj_vykaz(self):
         subory = filedialog.askopenfilenames(
@@ -345,7 +343,7 @@ class Aplikacia(ttk.Window):
         if pocet > 0:
             self.zoznam.selection_set(str(novy_index_od))
 
-    # ------------------------------------------------------------ detail/úprava
+    # ------------------------------------------------------------ detail / editing
 
     def _zobraz_prazdny_detail(self):
         for w in self.detail_ram.winfo_children():
@@ -357,14 +355,14 @@ class Aplikacia(ttk.Window):
         self._grid_widgety = None
 
     def _uloz_rozpracovany_grid(self):
-        """Uloží aktuálne (aj neúplné, ručne opravené) hodnoty z mriežky
-        naspäť do self.cakajuce PRED prepnutím na iný výkaz. Bez tohto by sa
-        akákoľvek ručná oprava (mena, mesiaca, hodín...) urobená len pri
-        prezeraní - bez kliknutia na jednotlivé "Schváliť" - stratila hneď
-        po prekliknutí na iný riadok v zozname, a "Schváliť všetky" by
-        pracovalo so starými, ešte neopravenými údajmi. Nezapisuje sa
-        prázdna hodnota cez už existujúcu dobrú (aby sa niečo nestratilo
-        len kvôli tomu, že je používateľ uprostred úpravy)."""
+        """
+        Saves the current values from the grid (even incomplete, hand-corrected ones) back to
+        self.cakajuce BEFORE switching to another timesheet. Without this, any manual fix (name,
+        month, hours...) made while browsing, without clicking that timesheet's "Schváliť", was lost
+        as soon as another row in the list was clicked, and "Schváliť všetky" worked with the old,
+        uncorrected data. An empty value never overwrites an existing good one (nothing is lost just
+        because the user is mid-edit).
+        """
         if self.aktualny_index is None or self._grid_widgety is None:
             return
         if self.aktualny_index >= len(self.cakajuce):
@@ -498,7 +496,7 @@ class Aplikacia(ttk.Window):
         ttk.Button(hlava, text="🔍  Zobraziť naskenovanú stranu", bootstyle="info-outline",
                    command=lambda: self._zobraz_nahlad(v)).grid(row=0, column=8, padx=(10, 0))
 
-        # -- posúvateľná mriežka --
+        # -- scrollable grid --
         obal = ttk.Frame(self.detail_ram)
         obal.pack(fill=BOTH, expand=True)
         platno = tk.Canvas(obal, highlightthickness=0)
@@ -580,8 +578,8 @@ class Aplikacia(ttk.Window):
 
     @staticmethod
     def _padx_den(d: int):
-        # medzera navyše po každom 7. dni  vizuálne rozdelí 31 stĺpcov na
-        # týždne, aby sa dalo ľahšie počítať, pod ktorým dňom bunka je
+        # extra space after every 7th day: splits the 31 columns into weeks visually, so it is
+        # easier to see which day a cell is under
         return (1, 9) if d % 7 == 0 else (1, 1)
 
     @staticmethod
@@ -609,11 +607,12 @@ class Aplikacia(ttk.Window):
         e_zak.bind("<Return>", _autofill)
 
     def _over_zakazku(self, e_zak: ttk.Entry):
-        """Živé zvýraznenie: ak číslo zákazky nie je v SUMAR (a sieť je
-        práve dostupná), políčko sa označí červeno. Len vizuálna pomôcka
-        pri prezeraní - definitívna kontrola pred zápisom sa robí vždy
-        nanovo v _nacitaj_z_gridu, nespolieha sa na túto (prípadne
-        zastaranú) cache."""
+        """
+        Live highlighting: if the job number is not in SUMAR (and the network is available right
+        now), the field turns red. Only a visual aid while browsing; the definitive check before
+        writing is always done afresh in _nacitaj_z_gridu and does not rely on this (possibly stale)
+        cache.
+        """
         zname = self._ziskaj_zname_zakazky(self._rok_aktualneho_vykazu())
         if zname is None:
             return
@@ -658,7 +657,7 @@ class Aplikacia(ttk.Window):
             messagebox.showinfo("Pridať riadok", "Najprv vyberte výkaz zo zoznamu vľavo.")
             return
         mriezka = self._grid_widgety["mriezka"]
-        r = len(self._grid_widgety["zak_entries"]) + 1  # hneď za hlavičkou
+        r = len(self._grid_widgety["zak_entries"]) + 1  # right after the header
         for e in mriezka.grid_slaves():
             info = e.grid_info()
             if int(info["row"]) >= r:
@@ -689,7 +688,7 @@ class Aplikacia(ttk.Window):
                                self._grid_widgety.get("spolu_vsetko_var"))
         e_zak.focus_set()
 
-    # ------------------------------------------------------------ náhľad skenu
+    # ------------------------------------------------------------ scan preview
 
     def _zobraz_nahlad(self, vykaz):
         okno = ttk.Toplevel(title="Naskenovaná strana  originál")
@@ -711,16 +710,17 @@ class Aplikacia(ttk.Window):
             fotky.append(foto)
             platno.create_image(0, y_posun, anchor="nw", image=foto)
             y_posun += maly.height + 20
-        self._nahlad_foto = fotky  # referencia, inak zmizne z pamäte
+        self._nahlad_foto = fotky  # keep a reference, otherwise it vanishes from memory
         platno.configure(scrollregion=platno.bbox("all"))
 
-    # ------------------------------------------------------------ zápis z gridu
+    # ------------------------------------------------------------ writing from the grid
 
     def _nacitaj_z_gridu(self, index: int, tichy: bool = False) -> tuple:
-        """Vráti (uspech, dôvod_zlyhania_alebo_None). Pri tichy=True sa
-        namiesto modálneho dialógu (nevhodné v hromadnom schvaľovaní, kde by
-        blokoval každý ďalší chybný výkaz) len vráti dôvod - volajúci ho
-        zobrazí v jednom súhrne na konci."""
+        """
+        Returns (success, reason_for_failure_or_None). With tichy=True, instead of a modal dialog
+        (unsuitable for batch approval, where it would block on every faulty timesheet) only the
+        reason is returned; the caller shows all of them in one summary at the end.
+        """
         v = self.cakajuce[index]
         w = self._grid_widgety
         if w is None:
@@ -763,9 +763,9 @@ class Aplikacia(ttk.Window):
         if not nove_riadky:
             return zlyhanie("Výkaz neobsahuje ani jeden riadok s číslom zákazky a hodinami.")
 
-        # čerstvá kontrola voči SUMAR priamo pred schválením (nie z cache -
-        # tá je len pre živé zvýraznenie pri prezeraní a môže byť zastaraná),
-        # voči zošitu PRESNE pre rok tohto výkazu (každý rok má vlastný súbor)
+        # fresh check against SUMAR right before approval (not from the cache, which is only for
+        # live highlighting while browsing and can be stale), against the workbook for EXACTLY this
+        # timesheet's year (each year has its own file)
         try:
             zname = SietovyZapis(self._cesta_mzdy(v["rok"])).nacitaj_zname_zakazky()
         except Exception as e:
@@ -782,7 +782,7 @@ class Aplikacia(ttk.Window):
         v["riadky"] = nove_riadky
         return True, None
 
-    # ------------------------------------------------------------ schvaľovanie
+    # ------------------------------------------------------------ approval
 
     def schval(self):
         if self.aktualny_index is None:
@@ -791,11 +791,12 @@ class Aplikacia(ttk.Window):
         self._schval_index(self.aktualny_index)
 
     def _schval_index(self, index, tichy: bool = False):
-        """Vráti (výsledok, dôvod). výsledok je True (úspech, prípadne s
-        dôvodom = varovanie napr. o neznámej zákazke), False (tento výkaz
-        sa preskočil, zvyšok dávky pokračuje ďalej) alebo "zrusit"
-        (používateľ odmietol opakovať zápis do uzamknutého súboru - ďalšie
-        pokusy o zvyšok dávky by zlyhali rovnako, treba zastaviť úplne)."""
+        """
+        Returns (result, reason). result is True (success, possibly with a reason = a warning, e.g.
+        about an unknown job), False (this timesheet was skipped and the rest of the batch carries
+        on) or "zrusit" (the user declined to retry writing to a locked file; the rest of the batch
+        would fail the same way, so stop completely).
+        """
         ok, dovod = self._nacitaj_z_gridu(index, tichy=tichy)
         if not ok:
             return False, dovod
@@ -878,8 +879,8 @@ class Aplikacia(ttk.Window):
             return
 
         uspesne = 0
-        varovania = []    # schválené, ale s výhradou (napr. neznáma zákazka)
-        preskocene = []   # vôbec sa neschválili, ostávajú v zozname na ručnú opravu
+        varovania = []    # approved, but with a caveat (e.g. an unknown job)
+        preskocene = []   # not approved at all; they stay in the list for manual fixing
         index = 0
         while index < len(self.cakajuce):
             popis = self._popis_vykazu(self.cakajuce[index])
@@ -890,13 +891,13 @@ class Aplikacia(ttk.Window):
                 uspesne += 1
                 if dovod:
                     varovania.append((popis, dovod))
-                # výkaz sa práve odstránil z cakajuce - na indexe je teraz ďalší
+                # the timesheet was just removed from cakajuce, so the next one is now at this index
             elif vysledok == "zrusit":
                 preskocene.append((popis, dovod))
                 break
             else:
                 preskocene.append((popis, dovod))
-                index += 1  # tento nechať na mieste, pokračovať ďalším
+                index += 1  # leave this one in place, carry on with the next
 
         self._obnov_zoznam()
         self._zobraz_prazdny_detail()
@@ -929,8 +930,8 @@ class Aplikacia(ttk.Window):
         self._zobraz_prazdny_detail()
 
     def otvor_excel(self):
-        # otvorí zošit pre rok práve vybraného výkazu (ak je nejaký vybraný),
-        # inak zošit pre aktuálny kalendárny rok
+        # opens the workbook for the year of the selected timesheet (if one is selected), otherwise
+        # the workbook for the current calendar year
         cesta = self._cesta_mzdy(self._rok_aktualneho_vykazu())
         try:
             os.startfile(os.path.abspath(cesta))
@@ -939,7 +940,7 @@ class Aplikacia(ttk.Window):
 
 
 class ProgressDialog(ttk.Toplevel):
-    """Modálne okno s priebehom pre spracovanie PDF na pozadí."""
+    """Modal progress window for processing PDFs in the background."""
 
     def __init__(self, titulok: str, maximum: int):
         super().__init__(title=titulok, resizable=(False, False))

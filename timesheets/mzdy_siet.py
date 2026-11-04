@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-mzdy_siet.py  Zápis schválených výkazov priamo do zdieľaného sieťového
-mzdového zošitu (napr. //server/zdielane/Mzdy 2026.xlsx),
-do natívneho formátu tohto zošitu: bunka "Hod" v 6-stĺpcovom bloku daného
-zamestnanca, na riadku zhodnom so SUMAR pre danú zákazku, na hárku
-príslušného mesiaca.
+mzdy_siet.py - writes approved timesheets straight into the shared network payroll workbook (e.g.
+//server/zdielane/Mzdy 2026.xlsx), in that workbook's own format: the "Hod" cell in the employee's
+6-column block, on the row that matches SUMAR for the job, on the sheet of the month.
 """
 
 import re
@@ -12,10 +10,10 @@ import unicodedata
 
 from openpyxl import load_workbook
 
-# Mapovanie priezvisko zamestnanca -> stĺpec, kde v mesačnom hárku začína
-# jeho 6-stĺpcový blok (Hod | Výkon | prémie% | mzda | prémie | Mzda spolu).
-# Ide o osobné údaje, preto nie sú v kóde, ale v config.json (kľúč
-# "zamestnanci_stlpce"), ktorý nie je v gite, napr. {"Novák": 6, "Kováč": 12}.
+# Map of employee surname -> the column where their 6-column block starts on the monthly sheet (Hod
+# | Výkon | prémie% | mzda | prémie | Mzda spolu). This is personal data, so it is not in the code
+# but in config.json (key "zamestnanci_stlpce"), which is not in git, e.g. {"Novák": 6, "Kováč":
+# 12}.
 
 MESIACE = {
     1: "Január",
@@ -43,14 +41,14 @@ def _bez_diakritiky(text: str) -> str:
 
 
 def _najdi_zamestnanca(zadane_meno: str, zamestnanci_stlpce: dict):
-    """Nájde zamestnanca zo 'zamestnanci_stlpce' podľa priezviska obsiahnutého
-    v zadanom mene. OCR/Gemini/Azure vždy prečíta CELÉ meno z formulára
-    ("Ján Novák"), nie len priezvisko ("Novák") - priamočiare porovnanie na
-    presnú zhodu by preto takmer nikdy neprešlo. Porovnáva sa bez diakritiky
-    a bez ohľadu na veľkosť písmen; priezvisko musí byť v zadanom mene celé
-    samostatné slovo (nie len časť iného slova). Vráti skutočný kľúč zo
-    slovníka (so správnou diakritikou), alebo None, ak zamestnanec v zozname
-    nie je (vtedy naozaj nie je kam zapísať - v zošite preň nie je stĺpec)."""
+    """
+    Finds an employee from 'zamestnanci_stlpce' by the surname contained in the given name. OCR,
+    Gemini and Azure always read the FULL name from the form ("Ján Novák"), not just the surname
+    ("Novák"), so a plain exact comparison would almost never match. The comparison ignores
+    diacritics and case; the surname must be a whole separate word in the given name (not part of
+    another word). Returns the real dict key (with the correct diacritics), or None if the employee
+    is not on the list (then there really is nowhere to write: the workbook has no column for them).
+    """
     if not zadane_meno:
         return None
     slova_zadane = set(_bez_diakritiky(zadane_meno).split())
@@ -61,10 +59,11 @@ def _najdi_zamestnanca(zadane_meno: str, zamestnanci_stlpce: dict):
 
 
 def _zorad_mesacne_harky(wb):
-    """Zoradí hárky mesiacov v zošite podľa kalendárneho poradia (Január..
-    December). Nemesačné hárky (napr. SUMAR) ostávajú na svojom mieste,
-    pred mesačnými - funguje aj pre mesačné hárky, ktoré si ľudia vytvorili
-    ručne priamo v Exceli (stačí, že majú presný názov mesiaca)."""
+    """
+    Sorts the month sheets in the workbook in calendar order (January..December). Non-month sheets
+    (e.g. SUMAR) stay where they are, before the month sheets. Also works for month sheets people
+    created by hand in Excel (all they need is the exact month name).
+    """
     aktualne = wb.sheetnames
     nemesacne = [n for n in aktualne if n not in _MESIAC_PODLA_NAZVU]
     mesacne = sorted(
@@ -77,7 +76,7 @@ def _zorad_mesacne_harky(wb):
 
 
 class SietovyZapis:
-    """Zapisuje schválené hodiny priamo do sieťového mzdového zošitu."""
+    """Writes approved hours straight into the network payroll workbook."""
 
     def __init__(self, cesta: str, zamestnanci_stlpce: dict | None = None):
         self.cesta = cesta
@@ -86,7 +85,7 @@ class SietovyZapis:
     def _najdi_riadok_zakazky(self, sumar_ws, kod: str):
         kod = str(kod).strip()
         for row in sumar_ws.iter_rows(min_row=10):
-            bunka = row[1].value  # stĺpec B
+            bunka = row[1].value  # column B
             if not isinstance(bunka, str):
                 continue
             zhoda = _KOD_ZAKAZKY_RE.match(bunka)
@@ -95,15 +94,16 @@ class SietovyZapis:
         return None
 
     def nacitaj_zname_zakazky(self) -> set:
-        """Vráti množinu všetkých čísel zákaziek, ktoré SUMAR pozná
-        (read-only, rýchle čítanie jedného hárku). Používa sa v appke na
-        overenie čísel zákaziek pred schválením/pri prezeraní výkazu."""
+        """
+        Returns the set of all job numbers SUMAR knows (read-only, a quick read of one sheet). Used
+        in the app to check job numbers before approval and while browsing a timesheet.
+        """
         wb = load_workbook(self.cesta, read_only=True)
         try:
             sumar_ws = wb["SUMAR"]
             kody = set()
             for row in sumar_ws.iter_rows(min_row=10):
-                bunka = row[1].value  # stĺpec B
+                bunka = row[1].value  # column B
                 if not isinstance(bunka, str):
                     continue
                 zhoda = _KOD_ZAKAZKY_RE.match(bunka)
@@ -128,9 +128,10 @@ class SietovyZapis:
         return novy_list
 
     def zapis_hodiny(self, zamestnanec: str, mesiac: int, rok: int, polozky, sadzba=None):
-        """polozky: iterovateľné {"zakazka": kod, "hodiny": súčet hodín}.
-        Vráti zoznam kódov zákaziek, ktoré neboli nájdené v SUMAR (a teda
-        neboli zapísané)."""
+        """
+        polozky: an iterable of {"zakazka": code, "hodiny": total hours}. Returns the list of job
+        codes not found in SUMAR (and therefore not written).
+        """
         if not self.zamestnanci_stlpce:
             raise ValueError(
                 "V config.json chýba 'zamestnanci_stlpce' (priezvisko -> stĺpec "
