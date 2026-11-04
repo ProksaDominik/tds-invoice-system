@@ -311,7 +311,7 @@ unfamiliar suppliers. The layouts all come from one generator, though, so it is
 | Amount to pay | 73 % (85.9 %) | 84 % (85.7 %) | 65 % (83.3 %) |
 | Variable symbol | 67 % (98.5 %) | 67 % (98.5 %) | 63 % (98.4 %) |
 | **All fields** | **79.8 % (95.5 %)** | **88.4 % (96.6 %)** | **75.6 % (94.2 %)** |
-| Every field right | 11 of 100 | 22 of 100 | 9 of 100 |
+
 
 - **Gemma earns its place on amounts and dates** (+8.6 points pooled). It is not
   asked for names, IDs or the variable symbol.
