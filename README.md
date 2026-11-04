@@ -203,7 +203,7 @@ archive file names; 160 digital, 277 scanned. Laptop with an RTX 5050 (8 GB).
 | Amount to pay | 352 | 90.3 % / 98.5 % | **96.3 %** / 98.5 % |
 | Variable symbol | 352 | 85.2 % / 100 % | 85.2 % / 100 % |
 | **All fields pooled** | 1,364 | 93.5 % / 99.5 % (F1 96.4 %) | **95.1 % / 99.5 % (F1 97.2 %)** |
-| Every field right | 437 | 356 (81.5 %) | 376 (86.0 %) |
+
 
 - **Misses are mostly empty fields, not wrong values** — precision stays at
   99.5 %. The variable symbol is never wrong, but it is missing on 52 invoices,
