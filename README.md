@@ -44,8 +44,7 @@ printed on each invoice:
   and on the real archive it now finds the IČO on 15 more pages.
 - **What did not work:** adding 300 generated invoices to LiLT's training did
   not make it better on real invoices.
-- **Limits:** 82 test invoices, only 13 of them received ones — each percentage
-  is only good to a few points.
+.
 
 **See it yourself:** [`notebooks/pipeline.ipynb`](notebooks/pipeline.ipynb)
 trains both models with live charts and reproduces every number above (about
