@@ -1,12 +1,12 @@
 # Invoice processing with my own OCR and extraction models
 
-[![CI](https://github.com/ProksaDominik/tdsfakture/actions/workflows/ci.yml/badge.svg)](https://github.com/ProksaDominik/tdsfakture/actions/workflows/ci.yml)
+[![CI](https://github.com/ProksaDominik/tds-invoice-system/actions/workflows/ci.yml/badge.svg)](https://github.com/ProksaDominik/tds-invoice-system/actions/workflows/ci.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 A desktop app that turns PDF invoices into accounting records. It is used
-every day at **TDS s.r.o.**, a Slovak HVAC company: it reads each invoice —
-digital or scanned — pulls out the data, and after a person has checked it,
+every day at **TDS s.r.o.**, a Slovak HVAC company: it reads each invoice
+(digital or scanned), pulls out the data, and after a person has checked it,
 writes it to the company's Excel ledgers. Everything runs on the office PC;
 invoices never leave the company.
 
@@ -19,7 +19,7 @@ that finds the invoice data on the page (LiLT, fine-tuned).
 **Data:** 437 real company invoices (238 issued, 184 received; 160 digital, 277
 scanned) and 500 generated received invoices (300 for training, 200 for
 testing). Tested on 82 real invoices from suppliers the models never saw, two fields each (amount
-to pay and variable symbol) — 164 values, checked against the payment QR code
+to pay and variable symbol): 164 values, checked against the payment QR code
 printed on each invoice:
 
 | Pipeline | Right | Wrong | Missed | Every field right |
@@ -35,16 +35,14 @@ printed on each invoice:
 - **My own stack** matches the PaddleOCR version value for value, and reads a
   scanned invoice in 4.6 s instead of 11.6 s.
 - **Gemma vs my model:** most of the gap closed once Gemma was asked for the
-  variable symbol too — the app had simply never asked it. Both are now close.
-- **Every field:** on 100 generated invoices where every answer is known (supplier, IČO, VAT
-  number, dates, amounts — 12 fields), today's app gets 86% of values right and
-  97% of the values it fills in are correct. It also found a bug: the rules only
-  knew the label "IČO", not Czech "IČ" or English "Company ID". Fixed — on a
-  fresh set of 100 generated invoices the supplier's IČO went from 61% to 99%,
-  and on the real archive it now finds the IČO on 15 more pages.
+  variable symbol too; the app had simply never asked it. Both are now close.
+- **Every field:** on 100 fresh generated invoices where every answer is
+  known (supplier, IČO, VAT number, dates, amounts: 12 fields), the app gets
+  88% of the values right, and 97% of the values it fills in are correct. The
+  test also found a bug: the rules only knew the Slovak label "IČO", not Czech
+  "IČ" or English "Company ID". After the fix that field went from 61% to 100%.
 - **What did not work:** adding 300 generated invoices to LiLT's training did
   not make it better on real invoices.
-.
 
 **See it yourself:** [`notebooks/pipeline.ipynb`](notebooks/pipeline.ipynb)
 trains both models with live charts and reproduces every number above (about
@@ -54,14 +52,14 @@ trains both models with live charts and reproduces every number above (about
 
 I am working on a second version that is not tied to one company:
 
-- **Universal** — any company's invoices, configured instead of hard-coded
+- **Universal:** any company's invoices, configured instead of hard-coded
   (today the rules know TDS's own name, ID and ledger layout).
 - **A database** instead of Excel workbooks, so every invoice, correction and
-  approval is stored and searchable — and every correction becomes new
+  approval is stored and searchable, and every correction becomes new
   training data.
-- **Docker** — the extractor as a small web service with a review page, started
+- **Docker:** the extractor as a small web service with a review page, started
   with one `docker compose up`.
-- **Faster and leaner** — my own OCR and LiLT model in the app itself, so it
+- **Faster and leaner:** my own OCR and LiLT model in the app itself, so it
   needs neither PaddleOCR nor an LLM server.
 
 The repository also contains a companion app, [`timesheets/`](timesheets/),
@@ -74,8 +72,8 @@ Received invoices come from dozens of suppliers, each with its own layout.
 Some are digital PDFs, most arrive as scans, and some have a broken text layer
 (the page looks fine, but the embedded text is missing digits). Fields move
 around, labels wrap across lines, two-column layouts get merged into one line
-by the PDF reader, and OCR turns `IČO:` into `ICO;`. One template — or one
-regex — cannot cover that.
+by the PDF reader, and OCR turns `IČO:` into `ICO;`. One template, or one
+regex, cannot cover that.
 
 ## How it works
 
@@ -115,7 +113,7 @@ flowchart LR
    reviewer sees an empty field instead of a plausible wrong one.
 4. **Classification.** Direction comes from the company's own ERP template
    (issued invoices carry fixed phrases) and from where the company's IČO and
-   name appear. Domestic vs foreign comes from the VAT-ID country prefix — not
+   name appear. Domestic vs foreign comes from the VAT-ID country prefix, not
    the text language, because international platforms localise their invoices
    into Slovak.
 5. **LLM fill-in.** Only for *received* invoices, and only for the critical
@@ -156,8 +154,8 @@ re-running it on archived PDFs and comparing the output with ground truth from
 one of two sources:
 
 - **Values a person approved in the app** (staging workbook or an Invoice Desk
-  database) — every reviewable field.
-- **Payment QR codes and archive file names** — no manual labelling.
+  database): every reviewable field.
+- **Payment QR codes and archive file names**, with no manual labelling.
   Slovak invoices carry a PAY by square code and Czech ones a QR Platba code,
   generated by the issuer's accounting system from the invoice data; the
   extractor never reads them. They give the amount to pay and the variable
@@ -172,8 +170,8 @@ one of two sources:
   The QR code's date is **not** used, although it is meant to be the due date.
   The first scored run put due-date accuracy at 7 %, so the labels were checked
   before the extractor: on 220 of 242 issued invoices the QR date is exactly
-  14, 30 or 60 days (the payment terms) before the printed due date — the
-  invoicing system writes the issue date there — and suppliers differ.
+  14, 30 or 60 days (the payment terms) before the printed due date: the
+  invoicing system writes the issue date there, and suppliers differ.
 
 ```bash
 python -m evaluation --pdfs <archived PDFs> --zaloha <staging workbook>      # approved values
@@ -204,13 +202,12 @@ archive file names; 160 digital, 277 scanned. Laptop with an RTX 5050 (8 GB).
 | Variable symbol | 352 | 85.2 % / 100 % | 85.2 % / 100 % |
 | **All fields pooled** | 1,364 | 93.5 % / 99.5 % (F1 96.4 %) | **95.1 % / 99.5 % (F1 97.2 %)** |
 
-
-- **Misses are mostly empty fields, not wrong values** — precision stays at
+- **Misses are mostly empty fields, not wrong values**: precision stays at
   99.5 %. The variable symbol is never wrong, but it is missing on 52 invoices,
   44 of them received ones, 31 of those digital: the rules do not recognise
   some suppliers' layouts. This is the gap the trained model closes (below).
 - Of the 5 totals counted as wrong, the QR amount is 50 %, 9.5 % or 60 % of
-  the extracted total — consistent with advance and retention invoices, where
+  the extracted total, consistent with advance and retention invoices, where
   the amount to pay legitimately differs from the total.
 - Gemma 4 was called on 132 of 437 documents (median 2.4 s per call).
 - Speed per document (median): 0.15 s for a digital PDF, 11.6 s for a scanned
@@ -222,7 +219,7 @@ archive file names; 160 digital, 277 scanned. Laptop with an RTX 5050 (8 GB).
 
 Both models are trained from the same office documents, split into train /
 validation / test by **supplier** (303 / 46 / 96 documents from 153 / 21 / 62
-supplier groups — QR IBAN, else IČO or name), so every test number is on
+supplier groups: QR IBAN, else IČO or name), so every test number is on
 suppliers the model never saw. Code in [`training/`](training/); every number
 below comes from one run of [`notebooks/pipeline.ipynb`](notebooks/pipeline.ipynb)
 on a laptop with an RTX 5050 (8 GB).
@@ -256,7 +253,7 @@ exactly, 0.6 % of characters wrong, 1.1 s per page.
 
 [LiLT](https://huggingface.co/nielsr/lilt-xlm-roberta-base) (XLM-RoBERTa base,
 MIT licence) reads each word with its position on the page. It is fine-tuned to
-tag the amount to pay and the variable symbol; training labels are automatic —
+tag the amount to pay and the variable symbol; training labels are automatic:
 words that read as the QR values are tagged. Trained on the real training
 invoices plus 300 generated received invoices
 ([`synthetic_invoices.py`](training/extraction/synthetic_invoices.py)), 8 epochs,
@@ -278,7 +275,7 @@ Test split, 82 invoices, 164 values:
   overrides them.
 - **The fair comparison:** the app asks Gemma only for amounts and dates. Asked
   for the variable symbol as well, Gemma closes most of the gap (96.3 % vs
-  97.0 %) — with 82 invoices the two are within each other's range.
+  97.0 %); with 82 invoices the two are within each other's range.
 - **Generated invoices did not help:** an earlier LiLT trained on real invoices
   only (20 epochs) reached 98.8 % in the same setting. The two runs also differ
   in length, but there is no sign that the generated data improved results on
@@ -286,47 +283,46 @@ Test split, 82 invoices, 164 values:
 - **Own stack:** scanned pages read by the own OCR instead of PaddleOCR give
   the same 159 / 164; a scanned invoice takes 4.6 s (median) instead of 11.6 s.
 - *Limits:* 82 test invoices (13 received), two scored fields, and the
-  combinations are scored on saved predictions — LiLT is not wired into the app
+  combinations are scored on saved predictions; LiLT is not wired into the app
   yet.
 
 ### Every field, on generated invoices
 
-The payment QR codes only answer for two fields. For the others, a second set
-of 100 generated received invoices (another seed than the ones LiLT trained on;
-53 of them scanned) has every answer known. The rules and Gemma never saw a
-generated invoice, so this tests the extractor on unfamiliar suppliers — but
-the layouts all come from one generator, so it is **not** accuracy on real
-invoices. 1,200 values; accuracy, with precision (filled values that are right)
-in brackets:
+The payment QR codes only answer for two fields. For the others, 100 generated
+received invoices (a fresh set, not the ones LiLT trained on and not the one
+used to find the IČO bug; 56 of them scanned) have every answer known. The rules
+and Gemma never saw a generated invoice, so this tests the extractor on
+unfamiliar suppliers. The layouts all come from one generator, though, so it is
+**not** accuracy on real invoices. 1,200 values; accuracy, with precision
+(filled-in values that are right) in brackets:
 
-| Field | PaddleOCR → rules | PaddleOCR → rules + Gemma 4 (today's app) | Own OCR → rules |
+| Field | PaddleOCR → rules | **PaddleOCR → rules + Gemma 4 (the app)** | Own OCR → rules |
 |---|---:|---:|---:|
 | Direction | 100 % (100 %) | 100 % (100 %) | 100 % (100 %) |
-| Invoice number | 100 % (100 %) | 100 % (100 %) | 99 % (99 %) |
-| Supplier name | 82 % (96.5 %) | 82 % (96.5 %) | 82 % (97.6 %) |
-| Supplier IČO | 59 % (100 %) | 59 % (100 %) | 58 % (100 %) |
+| Invoice number | 100 % (100 %) | 100 % (100 %) | 93 % (93.0 %) |
+| Supplier name | 81 % (97.6 %) | 81 % (97.6 %) | 75 % (92.6 %) |
+| Supplier IČO | 100 % (100 %) | 100 % (100 %) | 99 % (100 %) |
 | Supplier VAT number | 100 % (100 %) | 100 % (100 %) | 98 % (100 %) |
-| Issue date | 73 % (100 %) | 73 % (100 %) | 72 % (100 %) |
-| Delivery date | 69 % (100 %) | 89 % (98.9 %) | 66 % (100 %) |
-| Due date | 74 % (100 %) | 97 % (100 %) | 70 % (100 %) |
-| Net amount | 67 % (90.5 %) | 93 % (95.9 %) | 65 % (90.3 %) |
-| VAT amount | 64 % (90.1 %) | 92 % (96.8 %) | 61 % (85.9 %) |
-| Amount to pay | 69 % (84.1 %) | 80 % (82.5 %) | 66 % (81.5 %) |
-| Variable symbol | 71 % (97.3 %) | 71 % (97.3 %) | 70 % (100 %) |
-| **All fields** | **77.3 % (96.7 %)** | **86.3 % (97.2 %)** | **75.6 % (96.3 %)** |
-| Every field right | 9 of 100 | 18 of 100 | 10 of 100 |
+| Issue date | 69 % (100 %) | 69 % (100 %) | 65 % (98.5 %) |
+| Delivery date | 60 % (100 %) | 83 % (97.6 %) | 60 % (100 %) |
+| Due date | 78 % (100 %) | 99 % (100 %) | 73 % (100 %) |
+| Net amount | 69 % (86.2 %) | 91 % (91.9 %) | 62 % (86.1 %) |
+| VAT amount | 60 % (75.9 %) | 87 % (89.7 %) | 54 % (75.0 %) |
+| Amount to pay | 73 % (85.9 %) | 84 % (85.7 %) | 65 % (83.3 %) |
+| Variable symbol | 67 % (98.5 %) | 67 % (98.5 %) | 63 % (98.4 %) |
+| **All fields** | **79.8 % (95.5 %)** | **88.4 % (96.6 %)** | **75.6 % (94.2 %)** |
+| Every field right | 11 of 100 | 22 of 100 | 9 of 100 |
 
-- **Gemma earns its place on amounts and dates** (+9 points pooled); it is not
+- **Gemma earns its place on amounts and dates** (+8.6 points pooled). It is not
   asked for names, IDs or the variable symbol.
-- **The supplier's IČO was the weakest field:** the rules only knew the label
-  "IČO"; Czech invoices write "IČ" and English ones "Company ID". Fixed after
-  this run. To avoid tuning the fix to this test, it was measured on a fresh
-  set of 100 generated invoices (another seed), own OCR, rules only: IČO 61 % →
-  99 % (precision 100 %), all fields 72.4 % → 75.6 %. On the 14 real documents
-  whose IČO changed, every QR-scored field stayed exactly the same.
-- **Amount to pay:** 15 % of the generated invoices have a deposit, so the amount
-  to pay differs from the total — the extractor often takes the total, which
-  causes most of the wrong values in that row.
+- **The IČO bug.** The first run of this test (on another generated set) put the
+  supplier's IČO at 59 %: the rules only knew the label "IČO", while Czech
+  invoices write "IČ" and English ones "Company ID". After the fix it is 100 %.
+  On the real archive the fix finds the IČO on 15 more pages, and every
+  QR-scored field on those documents stayed exactly the same.
+- **Amount to pay:** 15 % of the generated invoices have a deposit, so the
+  amount to pay differs from the total. The extractor often takes the total,
+  which causes most of the wrong values in that row and in the VAT row.
 - **VAT number:** the new field (the counterparty's IČ DPH, never the company's
   own) is right on every invoice that has one.
 
@@ -351,7 +347,7 @@ in brackets:
 
 ## Tests
 
-`pytest` runs 178 tests in about two seconds — no PDFs, OCR or LLM needed (7 of them need the training environment and are skipped without it). The
+`pytest` runs 178 tests in about two seconds, with no PDFs, OCR or LLM needed (7 of them need the training environment and are skipped without it). The
 PDF reader is stubbed and the pipeline runs on synthetic invoice texts
 (received, issued, foreign reverse-charge). The tests cover the parsing rules,
 the arithmetic validation, the LLM gate (never called without config or for
@@ -389,7 +385,7 @@ cp config.example.json config.json                # then set ico_firmy and file 
 python app.py
 ```
 
-Optional components — the app skips a step if its component is missing:
+Optional components (the app skips a step if its component is missing):
 
 | Component | Setup |
 |---|---|
@@ -412,8 +408,8 @@ ruff check .
 
 | Key | Meaning |
 |---|---|
-| `ico_firmy`, `varianty_nazvu` | Company ID and name variants — used to tell received from issued invoices |
-| `ic_dph_firmy` | Own VAT number — never reported as the counterparty's (OCR misreads of it included) |
+| `ico_firmy`, `varianty_nazvu` | Company ID and name variants, used to tell received from issued invoices |
+| `ic_dph_firmy` | Own VAT number, never reported as the counterparty's (OCR misreads of it included) |
 | `subor_prijate`, `subor_vystavene`, `subor_zaloha` | Ledger workbooks and the staging workbook |
 | `priecinok_invoices` | Inbox folder with scanned invoices |
 | `priecinok_faktury`, `priecinok_faktury_pre_skladnikov` | Archive for approved PDFs and the warehouse copy |
@@ -434,11 +430,12 @@ ruff check .
 | `notebooks/pipeline.ipynb` | Trains both models and measures everything, step by step, with live charts |
 | `tests/` | Unit and pipeline tests on synthetic data |
 | `timesheets/` | Companion app for handwritten timesheets |
-| `docs/user-guide-sk.md` | End-user manual (Slovak) |
+| `docs/user-guide-en.md`, `docs/user-guide-sk.md` | User guide (English, and the Slovak original the office uses) |
 | `scripts/install.ps1` | One-click setup on a new Windows PC |
 
-Identifiers and comments in the code are in Slovak, the language of the
-people who use and maintain the app; this README and the tests are in English.
+Comments, docstrings, documentation and tests are in English. Function and
+variable names, config keys and the app's on-screen text are in Slovak, the
+language of the people who use the app.
 
 ## Data handling
 
