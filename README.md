@@ -16,7 +16,9 @@ that finds the invoice data on the page (LiLT, fine-tuned).
 
 ## Results in one minute
 
-82 real invoices from suppliers the models never saw, two fields each (amount
+**Data:** 437 real company invoices (238 issued, 184 received; 160 digital, 277
+scanned) and 500 generated received invoices (300 for training, 200 for
+testing). Tested on 82 real invoices from suppliers the models never saw, two fields each (amount
 to pay and variable symbol) — 164 values, checked against the payment QR code
 printed on each invoice:
 
@@ -36,8 +38,10 @@ printed on each invoice:
   variable symbol too — the app had simply never asked it. Both are now close.
 - **Every field:** on 100 generated invoices where every answer is known (supplier, IČO, VAT
   number, dates, amounts — 12 fields), today's app gets 86% of values right and
-  97% of the values it fills in are correct. The weak spot it found: the
-  supplier's IČO (59%) — the rules only know the label "IČO", not Czech "IČ".
+  97% of the values it fills in are correct. It also found a bug: the rules only
+  knew the label "IČO", not Czech "IČ" or English "Company ID". Fixed — on a
+  fresh set of 100 generated invoices the supplier's IČO went from 61% to 99%,
+  and on the real archive it now finds the IČO on 15 more pages.
 - **What did not work:** adding 300 generated invoices to LiLT's training did
   not make it better on real invoices.
 - **Limits:** 82 test invoices, only 13 of them received ones — each percentage
@@ -46,6 +50,20 @@ printed on each invoice:
 **See it yourself:** [`notebooks/pipeline.ipynb`](notebooks/pipeline.ipynb)
 trains both models with live charts and reproduces every number above (about
 2½ hours on a laptop GPU, or a 15-minute quick mode).
+
+## Version 2.0 (in progress)
+
+I am working on a second version that is not tied to one company:
+
+- **Universal** — any company's invoices, configured instead of hard-coded
+  (today the rules know TDS's own name, ID and ledger layout).
+- **A database** instead of Excel workbooks, so every invoice, correction and
+  approval is stored and searchable — and every correction becomes new
+  training data.
+- **Docker** — the extractor as a small web service with a review page, started
+  with one `docker compose up`.
+- **Faster and leaner** — my own OCR and LiLT model in the app itself, so it
+  needs neither PaddleOCR nor an LLM server.
 
 The repository also contains a companion app, [`timesheets/`](timesheets/),
 which reads handwritten monthly timesheets and writes the hours to the
@@ -301,9 +319,12 @@ in brackets:
 
 - **Gemma earns its place on amounts and dates** (+9 points pooled); it is not
   asked for names, IDs or the variable symbol.
-- **The supplier's IČO is the weakest field:** the rules only know the label
-  "IČO"; Czech invoices write "IČ" and English ones "Company ID". A clear next
-  fix.
+- **The supplier's IČO was the weakest field:** the rules only knew the label
+  "IČO"; Czech invoices write "IČ" and English ones "Company ID". Fixed after
+  this run. To avoid tuning the fix to this test, it was measured on a fresh
+  set of 100 generated invoices (another seed), own OCR, rules only: IČO 61 % →
+  99 % (precision 100 %), all fields 72.4 % → 75.6 %. On the 14 real documents
+  whose IČO changed, every QR-scored field stayed exactly the same.
 - **Amount to pay:** 15 % of the generated invoices have a deposit, so the amount
   to pay differs from the total — the extractor often takes the total, which
   causes most of the wrong values in that row.
