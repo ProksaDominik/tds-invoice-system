@@ -132,3 +132,156 @@ class TestRealLines:
 
         page = self.Page([self.line("Spolu 120,00", "ABCDEF+Arial"), self.line("u I 1 i G f", "NKVQXS+AZTWNormal")])
         assert [text for text, _ in page_lines(page)] == ["Spolu 120,00"]
+
+
+class TestLineDetection:
+    """The own OCR's classical detector (training/ocr/detect.py) on a drawn page."""
+
+    @pytest.fixture
+    def page(self):
+        pytest.importorskip("scipy")
+        from PIL import Image, ImageDraw, ImageFont
+
+        fonts = synth.available_fonts()
+        if not fonts:
+            pytest.skip("no system fonts (non-Windows machine)")
+        font = ImageFont.truetype(str(fonts[0]), 36)  # 12 pt at the OCR's 216 DPI
+        img = Image.new("L", (1600, 700), 255)
+        draw = ImageDraw.Draw(img)
+        for row, text in enumerate(["Faktúra číslo 2026001", "Suma na úhradu", "Variabilný symbol"]):
+            draw.text((100, 100 + row * 120), text, fill=0, font=font)
+        draw.text((1000, 100), "1 234,56 EUR", fill=0, font=font)  # second column of the first row
+        draw.line((80, 520, 1500, 520), fill=0, width=3)  # a table rule
+        return img
+
+    @staticmethod
+    def segments(img):
+        import numpy as np
+
+        from training.ocr.detect import find_segments
+
+        return find_segments(np.asarray(img))[1]
+
+    @staticmethod
+    def rows(boxes):
+        """Group boxes into text rows by vertical centre."""
+        rows = []
+        for box in sorted(boxes, key=lambda b: b[1] + b[3]):
+            centre = (box[1] + box[3]) / 2
+            if rows and abs(centre - rows[-1][-1][0]) < 20:
+                rows[-1].append((centre, box))
+            else:
+                rows.append([(centre, box)])
+        return [[b for _, b in row] for row in rows]
+
+    def test_rows_and_the_column_gap(self, page):
+        rows = self.rows(self.segments(page))
+        assert len(rows) == 3
+        first = sorted(rows[0])
+        gaps = [b[0] - a[2] for a, b in zip(first, first[1:])]
+        assert max(gaps) > 300  # "Faktúra číslo 2026001" and "1 234,56 EUR" are never one segment
+
+    def test_accents_stay_with_their_line_and_rules_are_not_text(self, page):
+        boxes = self.segments(page)
+        assert all(y1 - y0 > 25 for _, y0, _, y1 in boxes)  # no separate strip of accents
+        assert all(y1 < 500 for _, _, _, y1 in boxes)  # the table rule is erased
+
+    def test_slightly_rotated_scan_is_straightened(self, page):
+        rows = self.rows(self.segments(page.rotate(1.5, fillcolor=255, expand=False)))
+        assert len(rows) == 3
+        for row in rows:  # 1.5 degrees over 1000 px would drift 26 px without straightening
+            centres = [(b[1] + b[3]) / 2 for b in row]
+            assert max(centres) - min(centres) < 8
+
+    def test_large_widely_spaced_title_stays_one_segment(self):
+        pytest.importorskip("scipy")
+        import numpy as np
+
+        from training.ocr.detect import find_segments
+
+        gray = np.full((300, 1600), 255, np.uint8)
+        for k in range(40):  # body text: letters 20 px tall, 3 px apart, words 12 px apart
+            x = 40 + k * 36
+            for letter in range(3):
+                gray[200:220, x + letter * 8: x + letter * 8 + 5] = 0
+        for k in range(8):  # an invoice number in a title font: digits 40 px tall, 13 px apart
+            gray[60:100, 600 + k * 35: 622 + k * 35] = 0
+        title = [b for b in find_segments(gray)[1] if b[1] < 150]
+        assert len(title) == 1 and title[0][2] - title[0][0] > 250
+
+    def test_overlong_segment_is_split_at_a_gap(self):
+        pytest.importorskip("scipy")
+        import numpy as np
+
+        from training.ocr.detect import find_segments
+
+        gray = np.full((200, 3000), 255, np.uint8)
+        for k in range(60):  # 60 "words" of three letters, one long phrase
+            x = 40 + k * 48
+            for letter in range(3):
+                gray[80:110, x + letter * 10: x + letter * 10 + 6] = 0
+        boxes = sorted(find_segments(gray, max_ratio=30)[1])
+        assert len(boxes) >= 2
+        assert all(b[2] - b[0] <= 30 * (b[3] - b[1]) for b in boxes)
+        assert all(a[2] < b[0] for a, b in zip(boxes, boxes[1:]))  # the gap survives for the row assembly
+
+
+class TestAlignedDecoding:
+    def test_characters_and_word_spans_from_ctc_columns(self):
+        torch = pytest.importorskip("torch")
+        from training.ocr.reader import _aligned_text
+
+        a, b, space = charset.encode("ab ")
+        columns = torch.tensor([a, a, charset.BLANK, b, space, space, a, charset.BLANK])
+        text, words = _aligned_text(columns, x0=100, scale=1.0, height=10)
+        assert text == "ab a"
+        assert [w for w, _, _ in words] == ["ab", "a"]
+        (_, ab0, ab1), (_, a0, a1) = words
+        assert ab0 < ab1 < a0 < a1  # word spans in page order, left to right
+        assert ab0 == pytest.approx(100 + 0.5 * 4 - 3)  # first column's centre minus 0.3 x height
+
+
+class TestSyntheticInvoices:
+    """Generated received invoices (training/extraction/synthetic_invoices.py) - training data only."""
+
+    def test_iban_check_digits_are_valid(self):
+        from training.extraction.synthetic_invoices import iban
+
+        for k in range(20):
+            value = iban(random.Random(k), "SK" if k % 2 else "CZ")
+            rearranged = value[4:] + value[:4]
+            assert len(value) == 24 and int("".join(str(int(c, 36)) for c in rearranged)) % 97 == 1
+
+    def test_amount_formats(self):
+        from training.extraction.synthetic_invoices import amount_text
+
+        assert amount_text(1234.5, 0, 0) == "1 234,50 €"
+        assert amount_text(1234.5, 2, 3) == "EUR 1.234,50"
+        assert amount_text(-87.0, 1, 2) == "-87,00"
+
+    def test_totals_add_up(self):
+        from training.extraction.synthetic_invoices import invoice_data
+
+        for k in range(50):
+            d = invoice_data(random.Random(k), ("TDS s.r.o.", "12345678"))
+            assert d["gross"] == pytest.approx(d["net"] + d["vat"], abs=0.006)
+            assert d["pay"] == pytest.approx(d["gross"] - d["deposit"], abs=0.006)
+            assert d["vs"].isdigit() and len(d["vs"]) <= 10
+
+    def test_digital_invoice_carries_its_answers_on_the_page(self, tmp_path):
+        pytest.importorskip("reportlab")
+        if not synth.available_fonts():
+            pytest.skip("no system fonts (non-Windows machine)")
+        import pdfplumber
+
+        from training.extraction.dump_words import text_layer_words
+        from training.extraction.labels import tag_words
+        from training.extraction.synthetic_invoices import generate
+
+        rows = generate(3, tmp_path, ("TDS s.r.o.", "12345678"), scan_share=0.0)
+        for row in rows:
+            with pdfplumber.open(tmp_path / "pdfs" / row["file"]) as pdf:
+                words = [w[0] for w in text_layer_words(pdf.pages[0])]
+            gold = {"suma_s_dph": row["suma_s_dph"], "variabilny_symbol": row["variabilny_symbol"]}
+            _, found = tag_words(words, gold)
+            assert all(found.values()), row["file"]
