@@ -26,7 +26,9 @@ from .charset import BLANK, cer, decode_greedy, encode, in_charset
 from .model import CRNN, HEIGHT, output_lengths
 from .synth import TextSampler, available_fonts, degrade, render_line
 
-MAX_WIDTH = 1600
+# Wider lines are squeezed: 1024 px still gives 4 output columns per character for 64 characters, and
+# 1600 px batches filled the laptop GPU's 8 GB, so Windows spilled into system RAM (~50x slower).
+MAX_WIDTH = 1024
 
 
 def to_tensor(img: Image.Image) -> torch.Tensor:
@@ -142,6 +144,8 @@ def train(args) -> None:
     train_loader = loader(train_set, args.batch, args.workers, False)  # items are already random
 
     model = CRNN().to(device)
+    if args.init:  # continue from earlier weights (a fresh optimizer and schedule)
+        model.load_state_dict(torch.load(args.init, map_location=device)["model"])
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     schedule = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, total_steps=args.steps,
                                                    pct_start=min(0.3, max(0.05, 10 / args.steps)))
@@ -165,6 +169,10 @@ def train(args) -> None:
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         optimizer.step()
         schedule.step()
+        if step % args.log_every == 0:
+            elapsed = time.time() - start
+            print(json.dumps({"step": step, "loss": round(loss.item(), 4),
+                              "steps_per_second": round(step / elapsed, 2)}), flush=True)
         if step % args.eval_every == 0 or step == args.steps:
             metrics = {name: evaluate(model, dl, device) for name, dl in loaders.items()}
             row = {"step": step, "loss": round(loss.item(), 4), "minutes": round((time.time() - start) / 60, 1),
@@ -176,6 +184,8 @@ def train(args) -> None:
                 best = metrics[key]["cer"]
                 torch.save({"model": model.state_dict(), "step": step, "metrics": row}, out / "best.pt")
             (out / "history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
+            if device == "cuda":
+                torch.cuda.empty_cache()  # give evaluation's buffers back before training resumes
 
 
 def test(args) -> None:
@@ -203,11 +213,13 @@ def main(argv=None) -> int:
     parser.add_argument("--real", help="folder from python -m training.ocr.real_lines")
     parser.add_argument("--out", default="training/runs/ocr/crnn")
     parser.add_argument("--steps", type=int, default=60000)
-    parser.add_argument("--batch", type=int, default=64)
+    parser.add_argument("--batch", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--real-share", type=float, default=0.3)
     parser.add_argument("--eval-every", type=int, default=2000)
-    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--log-every", type=int, default=200, help="print speed every N steps")
+    parser.add_argument("--init", metavar="CHECKPOINT", help="start from these weights instead of random")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--fonts", default=r"C:\Windows\Fonts")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
