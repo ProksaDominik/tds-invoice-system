@@ -204,6 +204,11 @@ def test(args) -> None:
         runs = {f"Rules: {s}": [{c: baseline.get(test_docs[i]["file"], {}).get(f"{c} [{s}]") for c in SCORED}
                                 for i in idx] for s in setups}
         runs["LiLT (own model)"] = [predictions[i] for i in idx]
+        # the app's design: rules first, a model only for fields the rules left empty
+        for s in setups:
+            runs[f"Rules: {s} -> LiLT for gaps"] = [
+                {c: (rule.get(c) or "").strip() or predictions[i].get(c, "") for c in SCORED}
+                for i, rule in zip(idx, runs[f"Rules: {s}"])]
         for name, preds in runs.items():
             scores, perfect, n = score(list(zip(preds, [test_docs[i]["values"] for i in idx])), SCORED)
             lines += [f"### {name}", ""] + accuracy_table(scores, perfect, n) + [""]
