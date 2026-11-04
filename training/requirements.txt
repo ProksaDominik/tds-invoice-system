@@ -11,9 +11,12 @@ seqeval>=1.2
 pdfplumber>=0.11
 Pillow>=10
 numpy
+scipy  # own OCR's line detection (training/ocr/detect.py)
+openpyxl>=3.1  # the evaluation harness imports the app's Excel module
+reportlab>=4.0  # generated invoices (training/extraction/synthetic_invoices.py)
 sentencepiece
 protobuf
-# results notebook (notebooks/results.ipynb)
+# results notebook (notebooks/pipeline.ipynb)
 ipykernel
 matplotlib
 pandas

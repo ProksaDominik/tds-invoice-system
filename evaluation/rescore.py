@@ -32,7 +32,8 @@ def rescore(run: Path, labels: str, out: Path) -> dict:
                             "llm": {"calls": 0, "seconds": 0.0}} for n in names}}
             for d in documents]
     setups = [(n, None) for n in names]
-    summary = summarize(rows, setups, gold, fields, description, previous.get("errors", 0))
+    summary = summarize(rows, setups, gold, fields, description, previous.get("errors", 0),
+                        previous.get("ocr", "PaddleOCR"))
     summary["machine"], summary["timings"] = previous["machine"], previous["timings"]
     for new, old in zip(summary["setups"], previous["setups"]):
         if "llm_calls" in old:

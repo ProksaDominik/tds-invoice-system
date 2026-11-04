@@ -10,9 +10,9 @@ compares the model with the rule-based extractor (alone and with Gemma 4) on
 exactly the same documents.
 
     python -m training.extraction.train_lilt --words training/data/words --labels eval_data/labels_qr.csv \
-        --split training/data/split.csv --out training/runs/lilt/v1
+        --split training/data/split.csv --out training/runs/lilt/v1 [--synthetic training/data/synthetic]
     python -m training.extraction.train_lilt ... --test training/runs/lilt/v1/best \
-        --baseline eval_results/<run>/per_document.csv
+        --baseline eval_results/<run>/per_document.csv [--report-dir DIR]
 """
 
 from __future__ import annotations
@@ -47,13 +47,14 @@ def read_csv(path: str | Path) -> dict[str, dict]:
         return {Path(r["file"]).name: r for r in csv.DictReader(fh)}
 
 
-def load_words(path: Path) -> tuple[list[str], list[list[int]]]:
+def load_words(path: Path) -> tuple[list[str], list[list[int]], bool]:
+    """Words, their 0-1000 boxes, and whether any page was read by OCR (a scan)."""
     doc = json.loads(path.read_text(encoding="utf-8"))
     words, boxes = [], []
     for page in doc["pages"]:
         words += [w[0] for w in page["words"]]
         boxes += normalise_boxes(page["words"], page["width"], page["height"])
-    return words, boxes
+    return words, boxes, any(page.get("source") == "ocr" for page in doc["pages"])
 
 
 def encode(tokenizer, words: list[str], boxes: list[list[int]], tags: list[str] | None = None) -> list[dict]:
@@ -111,12 +112,29 @@ def load_documents(args) -> dict[str, list[dict]]:
         values = {c: (labels.get(file) or {}).get(c) or "" for c in SCORED}
         if not path.exists() or not any(values.values()):
             continue
-        words, boxes = load_words(path)
+        words, boxes, scanned = load_words(path)
         if not words:
             continue
         tags, found = tag_words(words, values)
         docs[row["split"]].append({"file": file, "words": words, "boxes": boxes, "tags": tags, "found": found,
-                                   "values": values, "typ": (labels.get(file) or {}).get("typ", "")})
+                                   "values": values, "typ": (labels.get(file) or {}).get("typ", ""),
+                                   "scanned": scanned})
+    return docs
+
+
+def load_synthetic(folder: Path) -> list[dict]:
+    """Generated invoices (synthetic_invoices.py) with words dumped to folder/words: training only."""
+    docs = []
+    for file, row in read_csv(folder / "labels.csv").items():
+        path = folder / "words" / f"{file}.json"
+        if not path.exists():
+            continue
+        words, boxes, scanned = load_words(path)
+        values = {c: row.get(c) or "" for c in SCORED}
+        if words:
+            tags, found = tag_words(words, values)
+            docs.append({"file": file, "words": words, "boxes": boxes, "tags": tags, "found": found,
+                         "values": values, "typ": row.get("typ", ""), "scanned": scanned})
     return docs
 
 
@@ -139,7 +157,8 @@ def train(args) -> None:
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     docs = load_documents(args)
-    train_docs, val_docs = fully_matched(docs["train"]), fully_matched(docs["val"])
+    synthetic = load_synthetic(Path(args.synthetic)) if args.synthetic else []
+    train_docs, val_docs = fully_matched(docs["train"]) + fully_matched(synthetic), fully_matched(docs["val"])
     tokenizer = AutoTokenizer.from_pretrained(BASE)
     chunks = [c for d in train_docs for c in encode(tokenizer, d["words"], d["boxes"], d["tags"])]
     model = LiltForTokenClassification.from_pretrained(
@@ -150,7 +169,8 @@ def train(args) -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     info = {"base_model": BASE, "device": device, "train_documents": len(train_docs),
-            "train_documents_skipped_unmatched": len(docs["train"]) - len(train_docs),
+            "train_documents_skipped_unmatched": len(docs["train"]) + len(synthetic) - len(train_docs),
+            "synthetic_train_documents": len(fully_matched(synthetic)),
             "val_documents": len(val_docs), "train_chunks": len(chunks), **vars(args)}
     (out / "config.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     print(json.dumps(info), flush=True)
@@ -195,12 +215,15 @@ def test(args) -> None:
              f"- Test documents: {len(test_docs)} (suppliers not seen in training)",
              "- Ground truth: payment QR codes (amount to pay, variable symbol)", ""]
     summary: dict[str, dict] = {}  # aggregates only, for the results notebook
-    for group in ("all", "Prijatá", "Vystavená"):
-        idx = [i for i, d in enumerate(test_docs) if group == "all" or d["typ"] == group]
+    groups = {"all": ("All invoices", lambda d: True),
+              "Prijatá": ("Received", lambda d: d["typ"] == "Prijatá"),
+              "Vystavená": ("Issued", lambda d: d["typ"] == "Vystavená"),
+              "scanned": ("Scanned", lambda d: d["scanned"])}
+    for group, (title, member) in groups.items():
+        idx = [i for i, d in enumerate(test_docs) if member(d)]
         if not idx:
             continue
-        lines += [f"## {'All invoices' if group == 'all' else 'Received' if group == 'Prijatá' else 'Issued'}"
-                  f" ({len(idx)})", ""]
+        lines += [f"## {title} ({len(idx)})", ""]
         runs = {f"Rules: {s}": [{c: baseline.get(test_docs[i]["file"], {}).get(f"{c} [{s}]") for c in SCORED}
                                 for i in idx] for s in setups}
         runs["LiLT (own model)"] = [predictions[i] for i in idx]
@@ -216,10 +239,11 @@ def test(args) -> None:
                 "documents": n, "all_fields_correct": perfect,
                 "fields": {f: {"correct": s.correct, "wrong": s.wrong, "missing": s.missing, "accuracy": s.accuracy,
                                "precision": s.precision, "f1": s.f1} for f, s in scores.items()}}
-    (Path(args.test).parent / "test_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    report = Path(args.test).parent / "test_report.md"
-    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    with open(Path(args.test).parent / "test_predictions.csv", "w", encoding="utf-8-sig", newline="") as fh:
+    out = Path(args.report_dir) if args.report_dir else Path(args.test).parent
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "test_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (out / "test_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with open(out / "test_predictions.csv", "w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=["file"] + SCORED)
         writer.writeheader()
         writer.writerows({"file": d["file"], **p} for d, p in zip(test_docs, predictions))
@@ -239,6 +263,8 @@ def main(argv=None) -> int:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--test", metavar="MODEL_DIR", help="evaluate a trained model on the test split")
     parser.add_argument("--baseline", help="per_document.csv of an evaluation run, for the comparison")
+    parser.add_argument("--report-dir", help="where --test writes its report (default: next to the model)")
+    parser.add_argument("--synthetic", help="folder of generated invoices (labels.csv + words/) added to training")
     args = parser.parse_args(argv)
     if args.test:
         test(args)
