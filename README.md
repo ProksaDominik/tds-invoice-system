@@ -141,12 +141,105 @@ in the app are scored; fields that are stored but never shown for review would
 just compare the extractor with itself. The report contains aggregates only;
 per-invoice output stays in the gitignored `eval_results/` folder.
 
-Results on approved production invoices will be published in this section
-once the baseline run is complete.
+### Results
+
+437 real office documents (2026) with ground truth from payment QR codes and
+archive file names; 160 digital, 277 scanned. Laptop with an RTX 5050 (8 GB).
+
+| Field | Documents | Rules: accuracy / precision | Rules + Gemma 4: accuracy / precision |
+|---|---:|---:|---:|
+| Direction (received / issued) | 422 | 99.5 % / 99.5 % | 99.5 % / 99.5 % |
+| Invoice number (issued) | 238 | 100 % / 100 % | 100 % / 100 % |
+| Amount to pay | 352 | 90.3 % / 98.5 % | **96.3 %** / 98.5 % |
+| Variable symbol | 352 | 85.2 % / 100 % | 85.2 % / 100 % |
+| **All fields pooled** | 1,364 | 93.5 % / 99.5 % (F1 96.4 %) | **95.1 % / 99.5 % (F1 97.2 %)** |
+| Every field right | 437 | 356 (81.5 %) | 376 (86.0 %) |
+
+- **Misses are mostly empty fields, not wrong values** — precision stays at
+  99.5 %. The variable symbol is never wrong, but it is missing on 52 invoices,
+  44 of them received ones, 31 of those digital: the rules do not recognise
+  some suppliers' layouts. This is the gap the trained model closes (below).
+- Of the 5 totals counted as wrong, the QR amount is 50 %, 9.5 % or 60 % of
+  the extracted total — consistent with advance and retention invoices, where
+  the amount to pay legitimately differs from the total.
+- Gemma 4 was called on 132 of 437 documents (median 2.4 s per call).
+- Speed per document (median): 0.15 s for a digital PDF, 11.6 s for a scanned
+  one (median 3 pages, ~3.5 s per page with PaddleOCR on the GPU). On a CPU
+  without CUDA PaddleOCR took 56–100 s per page, so the office PC needs an
+  NVIDIA GPU for scans.
+
+## Trained models
+
+Two models trained from the same office documents, split into train /
+validation / test by **supplier** (303 / 46 / 96 documents from 153 / 21 / 62
+supplier groups — QR IBAN, else IČO or name), so every test number is on
+suppliers the model never saw. Code in [`training/`](training/), everything
+reproducible from [`notebooks/pipeline.ipynb`](notebooks/pipeline.ipynb).
+
+### Extraction: LiLT fine-tuned on QR-labelled invoices
+
+[LiLT](https://huggingface.co/nielsr/lilt-xlm-roberta-base) (XLM-RoBERTa base,
+MIT licence) reads each word with its position on the page, from the PDF text
+layer or PaddleOCR word boxes. Training labels are automatic: words that read
+as the QR amount or variable symbol are tagged; 227 of 228 training invoices
+matched. 20 epochs, 42 minutes on the laptop GPU.
+
+Test split, 82 invoices with QR ground truth:
+
+| | Accuracy | Precision | F1 | Every field right |
+|---|---:|---:|---:|---:|
+| Rules | 91.5 % | 99.3 % | 95.2 % | 68 |
+| Rules + Gemma 4 (current app) | 92.1 % | 99.3 % | 95.6 % | 69 |
+| LiLT alone | 95.7 % | 97.5 % | 96.6 % | 76 |
+| **Rules, then LiLT for empty fields** | **98.8 %** | **99.4 %** | **99.1 %** | **80** |
+
+On the 13 received invoices the rules find the variable symbol 3 times, LiLT
+12 times. LiLT alone picks a wrong total more often than the rules (4 vs 1), so
+it belongs where the LLM is today: filling fields the rules left empty, never
+overriding them. In that role it fills 10 of the 11 variable symbols the rules
+missed; Gemma 4 fills none. *Limits:* 82 test invoices (13 received), two
+scored fields, and the combination is scored on saved predictions — it is not
+wired into the app yet.
+
+### OCR: a CRNN text recognizer trained from scratch
+
+CNN → two-layer BiLSTM → CTC, 8.5 M parameters, no pretrained weights. Trained
+on synthetic invoice lines (generated field patterns, 30 fonts, scan-like
+degradation that keeps diacritics readable) mixed 70 / 30 with 5,314 real lines
+cut from digital invoices of training suppliers, whose text layer gives an exact
+transcription. 2,000 + 15,000 steps; the 15,000 took 56 minutes on the laptop
+GPU.
+
+Test: 1,386 real lines from test-split suppliers; PaddleOCR's recognizer (the
+app's model) scored on exactly the same crops:
+
+| | CER | CER, spaces ignored | Lines exact, spaces ignored |
+|---|---:|---:|---:|
+| **Own CRNN** | **1.8 %** | **1.8 %** | **90.4 %** |
+| PaddleOCR PP-OCRv6 (pretrained) | 7.5 % | 2.9 % | 75.2 % |
+
+Spaces are reported separately because a PDF text layer and an OCR engine space
+words differently. *Limits:* these are clean renderings of digital invoices —
+the kind of line the CRNN was trained on — and only recognition is compared;
+the app still uses PaddleOCR, which also finds the text lines on scanned pages.
+
+### What the measurements caught
+
+- **The QR date is not the due date.** The first scored run put due-date
+  accuracy at 7 %. The labels were checked before the extractor: on 220 of 242
+  issued invoices the QR date is the issue date. The field was dropped.
+- **A barcode drawn with a font.** One invoice's Aztec code has a text layer of
+  random letters; its 324 "lines" were 73 % of the first OCR test errors (CER
+  5.8 % → 1.8 % once barcode fonts are skipped).
+- **Gemma 4 thinks before answering.** The hidden reasoning used up the token
+  budget and the JSON answer came back empty; calls now switch thinking off.
+- **Laptop GPU limits.** Batches that overflowed the 8 GB were spilled to
+  system RAM by Windows (0.17 → 2.8 training steps per second after the fix),
+  and cuDNN's LSTM dropout made every finished run abort on exit.
 
 ## Tests
 
-`pytest` runs 163 tests in about two seconds — no PDFs, OCR or LLM needed. The
+`pytest` runs 164 tests in about two seconds — no PDFs, OCR or LLM needed. The
 PDF reader is stubbed and the pipeline runs on synthetic invoice texts
 (received, issued, foreign reverse-charge). The tests cover the parsing rules,
 the arithmetic validation, the LLM gate (never called without config or for
@@ -223,7 +316,9 @@ ruff check .
 | `extractor.py` | Extraction pipeline: text and OCR, rules, validation, LLM fill-in |
 | `excel_manager.py` | Staging workbook, ledgers, archive numbering and PDF filing |
 | `calendar_manager.py` | Google Calendar due-date and summary reminders |
-| `evaluation/` | Accuracy and speed measurement against approved invoices |
+| `evaluation/` | Accuracy and speed measurement against approved invoices or payment-QR ground truth |
+| `training/` | Own models: CRNN text recognizer (`ocr/`), LiLT extraction (`extraction/`), supplier split |
+| `notebooks/pipeline.ipynb` | The whole measurement and training pipeline, step by step, with charts |
 | `tests/` | Unit and pipeline tests on synthetic data |
 | `timesheets/` | Companion app for handwritten timesheets |
 | `docs/user-guide-sk.md` | End-user manual (Slovak) |
