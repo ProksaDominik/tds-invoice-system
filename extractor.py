@@ -675,6 +675,17 @@ def _zaklad_a_dph_z_derivacie(text: str, suma_s_dph: str) -> dict:
 
 # ---------------------------------------------------------------- IČO / strany
 
+# Popisky IČO: slovenské „IČO", české „IČ" (nie však „DIČ"  daňové číslo)
+# a anglické „Company ID", „Reg. No.", „Registration number". České a anglické
+# popisky chýbali  test na generovaných faktúrach s nimi našiel IČO len v 59 %.
+_ICO_RE = re.compile(
+    r"(?:ico|(?<![a-z])ic"
+    r"|company\s*(?:id|reg(?:istration)?\.?\s*(?:no|number)?)"
+    r"|reg(?:istration)?\.?\s*(?:no|number)"
+    r")\.?\s*[:.,;\-]?\s*(\d[\d ]{6,12}\d)"
+)
+
+
 def _najdi_vsetky_ico(text: str) -> list:
     """Vráti zoznam (pozícia, IČO)  8-miestne čísla za textom 'IČO'.
     Toleruje aj IČO rozdelené medzerami pre čitateľnosť (napr. '37 022 849').
@@ -691,7 +702,7 @@ def _najdi_vsetky_ico(text: str) -> list:
     """
     plain = _bez_diakritiky(text)
     vysledky = []
-    for m in re.finditer(r"ico\s*[:.,;\-]?\s*(\d[\d ]{6,12}\d)", plain):
+    for m in _ICO_RE.finditer(plain):
         cislo = re.sub(r"\s+", "", m.group(1))
         if len(cislo) == 8:
             vysledky.append((m.start(), cislo))

@@ -25,6 +25,16 @@ class TestCompanyIdDetection:
         text = "Dodávateľ IČO: 36123456\nOdberateľ IČO: 44828390"
         assert [ico for _, ico in extractor._najdi_vsetky_ico(text)] == ["36123456", "44828390"]
 
+    @pytest.mark.parametrize(
+        "label", ["IČ:", "IČ", "Company ID:", "Reg. No.:", "Registration number", "Company Reg. No."])
+    def test_czech_and_english_labels(self, label):
+        # Czech invoices write „IČ", English ones „Company ID" / „Reg. No." (found by the generated-invoice test)
+        assert [ico for _, ico in extractor._najdi_vsetky_ico(f"{label} 27082440")] == ["27082440"]
+
+    @pytest.mark.parametrize("text", ["DIČ: 27082440", "DIČ: CZ27082440", "IČ DPH: SK2020000015", "DIČ 2020000015"])
+    def test_tax_numbers_are_not_company_ids(self, text):
+        assert extractor._najdi_vsetky_ico(text) == []
+
 
 class TestDates:
     @pytest.mark.parametrize("raw", [f"16.06.{YEAR}", f"16. 06. {YEAR}", f"{YEAR}-06-16"])
